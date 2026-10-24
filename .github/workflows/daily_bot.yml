@@ -1,29 +1,36 @@
-name: Telegram Daily Commuter Quiz
+name: Telegram & Instagram Daily Publisher
 
 on:
   schedule:
-    - cron: '30 2 * * *'
-    - cron: '30 12 * * *'
+    - cron: '30 2 * * *'   # Morning 08:00 AM IST
+    - cron: '30 6 * * *'   # Midday 12:00 PM IST
+    - cron: '30 12 * * *'  # Evening 06:00 PM IST
   workflow_dispatch:
 
 jobs:
-  publish-quiz:
+  publish:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Repository
+      - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      - name: Install dependencies
+      - name: Install Dependencies
         run: pip install requests google-genai pillow
 
-      - name: Run Telegram Publisher
+      - name: Run Pipeline
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
         run: python bot.py
+
+      - name: Save Instagram Post Image
+        uses: actions/upload-artifact@v4
+        with:
+          name: instagram-post-today
+          path: cultynex_instagram_post.png
