@@ -149,12 +149,11 @@ def generate_commuter_content():
     }
     """
     
-    # 3 attempts with wait time agar 503 high demand ho
     for attempt in range(1, 4):
         try:
             print(f"API Attempt {attempt} to fetch editorial content...")
             res = client.models.generate_content(
-                model="gemini-2.5-flash",
+                model="gemini-3.8-flash",
                 contents=prompt
             )
             raw = res.text.strip()
