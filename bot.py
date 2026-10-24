@@ -1,10 +1,10 @@
 import os
 import json
 import time
+import urllib.parse
 import requests
 from io import BytesIO
 from google import genai
-from google.genai import types
 
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 CHANNEL_CHAT_ID = os.environ.get("TELEGRAM_CHANNEL_ID")
@@ -33,36 +33,33 @@ def send_telegram_quiz(q):
     }
     return requests.post(url, data=payload).json()
 
-def generate_ai_artwork(client, visual_prompt):
-    print("Generating 8K Cinematic Infographic Poster via Imagen 3...")
-    result = client.models.generate_images(
-        model='imagen-3.0-generate-002',
-        prompt=visual_prompt,
-        config=types.GenerateImagesConfig(
-            number_of_images=1,
-            aspect_ratio="1:1"
-        )
-    )
-    generated_image = result.generated_images[0]
-    img_bytes = generated_image.image.image_bytes
+def fetch_ai_infographic(prompt_text):
+    print("Generating ultra-detailed cinematic sci-fi infographic via Flux engine...")
+    encoded_prompt = urllib.parse.quote(prompt_text)
+    # 1080x1080 square for Telegram & Instagram
+    image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1080&height=1080&nologo=true&model=flux"
     
-    # Save local file for Instagram export
-    with open("cultynex_instagram_post.png", "wb") as f:
-        f.write(img_bytes)
-        
-    return BytesIO(img_bytes)
+    headers = {"User-Agent": "Mozilla/5.0"}
+    res = requests.get(image_url, headers=headers, timeout=60)
+    
+    if res.status_code == 200:
+        with open("cultynex_instagram_post.png", "wb") as f:
+            f.write(res.content)
+        return BytesIO(res.content)
+    else:
+        raise Exception(f"Image generation failed with status {res.status_code}")
 
 def generate_commuter_content():
     client = genai.Client(api_key=GEMINI_KEY)
     
     prompt = """
     You are the Senior Creative Director for CULTYNEX MEDIA NETWORK.
-    Produce an elite, mind-blowing educational brief & quizzes for high-curiosity commuters and creators.
-    Also generate an ultra-detailed cinematic art prompt for Imagen 3 matching the aesthetic of a futuristic sci-fi cosmic blueprint or quantum computing schematic.
+    Produce an elite educational brief & quizzes for high-curiosity commuters and creators.
+    Also generate a prompt for a hyper-detailed sci-fi infographic poster (cross-section diagram, glowing cosmic telemetry, black hole physics, technical schematic overlay, dark neon aesthetic).
     
     Return STRICT JSON (No backticks, no markdown fence):
     {
-      "visual_prompt": "Ultra-detailed futuristic scientific infographic poster, dark cosmic blue and neon orange glowing accents, cross-section breakdown of quantum AI computing architecture and universe scale, intricate geometric diagrams, blueprint HUD overlays, glowing telemetry data panels, hyper-realistic, 8k resolution, cinematic lighting, masterpiece aesthetic.",
+      "visual_prompt": "hyper-detailed sci-fi scientific infographic poster of deep space cosmic web and quantum AI computing core, glowing neon blue and orange telemetry diagrams, intricate technical schematics, mathematical formulas, dark cosmic background, blueprint HUD overlay, 8k resolution, cinematic lighting, masterpiece",
       "brief_html": "🌌 <b>CULTYNEX COSMIC & TECH RADAR</b> | <i>Deep-Dive Edition</i>\\n━━━━━━━━━━━━━━━━━━━━━\\n\\n⚡ <b>DEEP TECH BREAKTHROUGH</b>\\n• <b>Quantum-AI Synergy:</b> Next-gen neural accelerators bridge silicon micro-architecture with optical tensor meshes.\\n• <b>Compute Expansion:</b> ₹10,372 Cr GPU infra cluster fast-tracks indigenous foundational models.\\n\\n📊 <b>MACRO & CAPITAL MONITOR</b>\\n• <b>Bitcoin:</b> Consolidating institutional liquidity above $105,000.\\n• <b>Physical Gold:</b> ₹79,400 / 10g holding historic macro highs.\\n\\n🧠 <b>CONCEPT OF THE DAY</b>\\n• <b>Singularity:</b> The theoretical threshold where algorithmic intelligence surpasses total human cognitive capability.\\n━━━━━━━━━━━━━━━━━━━━━\\n🎯 <b>SPEED CHALLENGE (5 RAPID-FIRE QUIZZES)</b>\\n<i>Test your intellect before the next transit stop! 👇</i>",
       "quizzes": [
         {
@@ -114,7 +111,7 @@ def generate_commuter_content():
             if raw.endswith("```"):
                 raw = raw[:-3]
             data = json.loads(raw.strip())
-            return client, data
+            return data
         except Exception as e:
             print(f"Attempt {attempt} failed: {e}")
             if attempt < 3:
@@ -124,10 +121,10 @@ def generate_commuter_content():
 
 def main():
     print("Initiating Cultynex Next-Gen Publishing Engine...")
-    client, data = generate_commuter_content()
+    data = generate_commuter_content()
 
-    # Generate 8K AI Infographic Poster
-    art_stream = generate_ai_artwork(client, data["visual_prompt"])
+    # Generate 8K AI Infographic Poster via Flux
+    art_stream = fetch_ai_infographic(data["visual_prompt"])
 
     # Publish to Telegram
     print("Publishing to Telegram channel @cultynex_daily...")
