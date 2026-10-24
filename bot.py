@@ -2,21 +2,65 @@ import os
 import json
 import time
 import requests
+from io import BytesIO
+from PIL import Image, ImageDraw, ImageFont
 from google import genai
 
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 CHANNEL_CHAT_ID = os.environ.get("TELEGRAM_CHANNEL_ID")
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
 
-def send_telegram_photo(photo_url, caption):
+def create_premium_banner(title_text="CULTYNEX DAILY PULSE", subtitle_text="METRO COMMUTER EDITION"):
+    # 1200x630 Premium Aspect Ratio Card
+    width, height = 1200, 550
+    base = Image.new("RGBA", (width, height), (13, 17, 23, 255)) # Dark base
+    draw = ImageDraw.Draw(base)
+
+    # 1. Subtle Neon Mesh Gradient Background
+    for y in range(height):
+        r = int(18 + (35 - 18) * (y / height))
+        g = int(22 + (20 - 22) * (y / height))
+        b = int(40 + (75 - 40) * (y / height))
+        draw.line([(0, y), (width, y)], fill=(r, g, b, 255))
+
+    # 2. Outer Glow & Rounded Card Frame
+    card_margin = 25
+    card_box = [card_margin, card_margin, width - card_margin, height - card_margin]
+    
+    # Outer Border with Cyberpunk Gradient accent
+    draw.rounded_rectangle(card_box, radius=32, outline=(65, 90, 150, 200), width=3)
+    
+    # Accent glowing corner indicators
+    accent_color = (0, 225, 255, 240) # Electric cyan
+    purple_accent = (255, 0, 128, 220) # Hot pink/purple
+    
+    # Decorative top badge
+    draw.rounded_rectangle([60, 60, 290, 105], radius=15, fill=(30, 42, 65, 255), outline=accent_color, width=2)
+    draw.text((80, 72), "⚡ LIVE BRIEF", fill=accent_color)
+
+    # 3. Typography
+    draw.text((65, 150), title_text, fill=(255, 255, 255))
+    draw.text((65, 230), subtitle_text, fill=(160, 180, 220))
+    
+    # Bottom aesthetic bar
+    draw.line([(65, 450), (width - 65, 450)], fill=(45, 55, 80), width=2)
+    draw.text((65, 470), "DELHI METRO & RAILWAY TRANSIT BRIEF", fill=purple_accent)
+    draw.text((width - 320, 470), "DAILY MORNING & EVENING", fill=(130, 145, 175))
+
+    output = BytesIO()
+    base.convert("RGB").save(output, format="JPEG", quality=95)
+    output.seek(0)
+    return output
+
+def send_telegram_photo(image_bytes, caption):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
-    payload = {
+    files = {"photo": ("card.jpg", image_bytes, "image/jpeg")}
+    data = {
         "chat_id": CHANNEL_CHAT_ID,
-        "photo": photo_url,
         "caption": caption,
         "parse_mode": "HTML"
     }
-    return requests.post(url, data=payload).json()
+    return requests.post(url, data=data, files=files).json()
 
 def send_telegram_quiz(q):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPoll"
@@ -33,51 +77,43 @@ def send_telegram_quiz(q):
 
 def generate_commuter_content():
     client = genai.Client(api_key=GEMINI_KEY)
-    
     prompt = """
-    You are the head editor of a premium, visual-first digital magazine for Indian metro & train commuters.
-    Create a punchy, highly aesthetic morning brief and 5 interactive quizzes.
-    
-    Format requirements for 'brief_html':
-    - Bold attention-grabbing headers.
-    - Key numbers and stats highlighted.
-    - Clear visual line separators.
-    - Hinglish friendly, stylish tone.
-
+    Create a crisp, stylish, high-energy morning news brief for Delhi NCR commuters.
     Return STRICT JSON (No backticks, no markdown fence):
     {
-      "banner_image": "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=1200&q=80",
-      "brief_html": "⚡ <b>CULTYNEX COMMUTER PULSE</b> | <i>Morning Edition</i>\\n━━━━━━━━━━━━━━━━━━━━━\\n\\n🚀 <b>TECH & AI SNAPSHOT</b>\\n• Tata's Dholera Fab kicks off cleanroom setup.\\n• India's domestic chip supply timeline fast-tracked.\\n\\n📊 <b>MARKET & GOLD RADAR</b>\\n• <b>24K Gold:</b> ₹78,900 / 10g (Wedding season boost)\\n• <b>Bitcoin:</b> Holding strong above $105K institutional floor\\n\\n🧠 <b>VOCABULARY OF THE DAY</b>\\n• <b>Tenacious</b> [दृढ़ / हार न मानने वाला]\\n<i>\"He was tenacious in pursuing his tech startup dreams.\"</i>\\n━━━━━━━━━━━━━━━━━━━━━\\n🎯 <b>TODAY'S COMMUTER CHALLENGE (5 QUIZZES)</b>\\n<i>Tap your choice below to test your speed! 👇</i>",
+      "card_title": "CULTYNEX COMMUTER PULSE",
+      "card_sub": "MORNING RUSH EDITION • TECH & ASSETS",
+      "brief_html": "⚡ <b>CULTYNEX COMMUTER PULSE</b> | <i>Morning Rush Edition</i>\\n━━━━━━━━━━━━━━━━━━━━━\\n\\n🚀 <b>TECH & AI RADAR</b>\\n• <b>India AI Mission:</b> ₹10,372 Cr GPU compute tender gets massive bids from leading cloud players.\\n• <b>Quick-Commerce Wars:</b> 10-minute gadget deliveries roll out in major metro hubs.\\n\\n📈 <b>MARKET & ASSETS CHECK</b>\\n• <b>Nifty 50:</b> Eyeing key resistance near 24,350.\\n• <b>24K Gold:</b> ₹79,200 / 10g (Festive & wedding demand solid).\\n• <b>Bitcoin:</b> Steady accumulation above $104,800.\\n\\n🧠 <b>VOCAB ON THE MOVE</b>\\n• <b>Equanimity</b> [संयम / मानसिक स्थिरता]\\n<i>\"Maintain equanimity even jab metro interchange pe heavy rush ho.\"</i>\\n\\n🚆 <b>URBAN TRANSIT NOTE</b>\\n• <b>Namo Bharat:</b> Rapid RRTS corridors cutting commute times drastically across Delhi-NCR.\\n━━━━━━━━━━━━━━━━━━━━━\\n🎯 <b>COMMUTE CHALLENGE (5 RAPID-FIRE QUIZZES)</b>\\n<i>Test your street-smart IQ before your station arrives! 👇</i>",
       "quizzes": [
         {
-          "question": "🧠 Vocab: What is the antonym of 'Tenacious'?",
-          "options": ["Irresolute / Weak", "Persistent", "Determined", "Stubborn"],
+          "question": "🧠 Vocab: What is the primary meaning of 'Equanimity'?",
+          "options": ["Mental calmness in difficult situations", "Extreme excitement", "Physical endurance", "Carelessness"],
           "correct_option_id": 0,
-          "explanation": "'Tenacious' means holding fast; 'Irresolute' means hesitant or giving up easily."
+          "explanation": "'Equanimity' means composure and calmness, especially under stress."
         },
         {
-          "question": "🪙 Gold: What does 24 Karat gold signify in purity?",
-          "options": ["99.9% Pure Gold", "91.6% Pure Gold", "75.0% Pure Gold", "82.5% Pure Gold"],
+          "question": "🪙 Gold: Hallmark 916 gold is equivalent to which karat purity?",
+          "options": ["22 Karat", "24 Karat", "18 Karat", "20 Karat"],
           "correct_option_id": 0,
-          "explanation": "24K is 99.9% pure, while 22K (hallmark 916) is 91.6% pure."
+          "explanation": "916 hallmark indicates 91.6% purity, which is 22 Karat gold."
         },
         {
-          "question": "💻 Tech: Tata's major semiconductor chip fab is being built at:",
-          "options": ["Dholera, Gujarat", "Noida, UP", "Bengaluru, Karnataka", "Hyderabad, Telangana"],
+          "question": "🚆 Metro: What does RRTS stand for in India's regional rapid transit?",
+          "options": ["Regional Rapid Transit System", "Railway Rapid Track Service", "Road Railway Transport Scheme", "Regional Rail Tech Standard"],
           "correct_option_id": 0,
-          "explanation": "Tata Electronics is constructing its mega chip fabrication unit at Dholera, Gujarat."
+          "explanation": "RRTS stands for Regional Rapid Transit System, powering Namo Bharat corridors."
         },
         {
-          "question": "₿ Crypto: In Bitcoin mining, a 'Halving' event occurs roughly every:",
-          "options": ["4 Years (210,000 blocks)", "2 Years", "1 Year", "6 Months"],
+          "question": "💻 Tech: What hardware component handles large-scale AI matrix training?",
+          "options": ["GPU (Graphics Processing Unit)", "HDD (Hard Disk Drive)", "Sound Card", "Modem"],
           "correct_option_id": 0,
-          "explanation": "Halving occurs approximately every 4 years, cutting the block issuance rate by 50%."
+          "explanation": "GPUs and TPUs specialize in parallel matrix operations required for AI neural networks."
         },
         {
-          "question": "🚆 Metro Trivia: Which Delhi Metro line was the first to implement fully driverless train operations?",
-          "options": ["Magenta Line", "Yellow Line", "Blue Line", "Red Line"],
+          "question": "₿ Crypto: What consensus mechanism does the Bitcoin network rely on?",
+          "options": ["Proof of Work (PoW)", "Proof of Stake (PoS)", "Delegated Authority", "Proof of History"],
           "correct_option_id": 0,
-          "explanation": "The Magenta Line (Line 8) was the first to introduce unattended driverless train operations."
+          "explanation": "Bitcoin operates on the Proof of Work (PoW) consensus mechanism with SHA-256."
         }
       ]
     }
@@ -96,23 +132,26 @@ def generate_commuter_content():
     return json.loads(raw.strip())
 
 def main():
-    print("Generating premium commuter briefing...")
+    print("Generating commuter content...")
     data = generate_commuter_content()
     
-    # 1. Post Visual Header + Styled Brief
-    print("Posting banner image + brief...")
-    img = data.get("banner_image", "[https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=1200&q=80](https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=1200&q=80)")
-    send_telegram_photo(img, data["brief_html"])
+    print("Designing neon-aesthetic commuter card...")
+    banner_img = create_premium_banner(
+        data.get("card_title", "CULTYNEX DAILY PULSE"),
+        data.get("card_sub", "MORNING COMMUTER EDITION")
+    )
+    
+    print("Sending card + brief to @cultynex_daily...")
+    send_telegram_photo(banner_img, data["brief_html"])
     time.sleep(2)
     
-    # 2. Post Interactive Quizzes
     print(f"Posting {len(data['quizzes'])} polls...")
     for idx, q in enumerate(data["quizzes"], 1):
         resp = send_telegram_quiz(q)
         print(f"[{idx}] Poll status: {resp.get('ok')}")
         time.sleep(2)
         
-    print("Done! Check @cultynex_daily.")
+    print("Pipeline finished successfully!")
 
 if __name__ == "__main__":
     main()
