@@ -4,7 +4,7 @@ import time
 import requests
 from io import BytesIO
 from datetime import datetime
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 from google import genai
 
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -17,7 +17,7 @@ def generate_cinematic_card(category_title, headline, bullet_one, bullet_two):
     image = Image.new("RGBA", (width, height), (10, 14, 23, 255))
     draw = ImageDraw.Draw(image)
 
-    # Ambient Glow Background (Dark Tech Gradient)
+    # Ambient Dark Tech Gradient
     for y in range(height):
         ratio = y / height
         r = int(10 + (22 - 10) * ratio)
@@ -25,12 +25,12 @@ def generate_cinematic_card(category_title, headline, bullet_one, bullet_two):
         b = int(23 + (55 - 23) * ratio)
         draw.line([(0, y), (width, y)], fill=(r, g, b, 255))
 
-    # Outer Glassmorphic Border with Neon Cyan & Electric Purple accents
+    # Glassmorphic Borders
     pad = 40
     draw.rounded_rectangle([pad, pad, width - pad, height - pad], radius=40, outline=(38, 55, 88), width=3)
     draw.rounded_rectangle([pad + 8, pad + 8, width - pad - 8, height - pad - 8], radius=34, outline=(0, 229, 255, 120), width=2)
 
-    # Glowing Top Category Badge
+    # Glowing Category Badge
     badge_x1, badge_y1, badge_x2, badge_y2 = 80, 85, 480, 155
     draw.rounded_rectangle([badge_x1, badge_y1, badge_x2, badge_y2], radius=18, fill=(16, 36, 64, 255), outline=(0, 229, 255), width=2)
     draw.text((115, 105), f"⚡ {category_title.upper()}", fill=(0, 240, 255))
@@ -43,14 +43,14 @@ def generate_cinematic_card(category_title, headline, bullet_one, bullet_two):
     draw.text((80, 200), "CULTYNEX MEDIA NETWORK", fill=(0, 229, 255))
     draw.line([(80, 235), (width - 80, 235)], fill=(40, 58, 90), width=2)
 
-    # Main Headline (Large Visual Block)
+    # Main Headline
     draw.rounded_rectangle([80, 270, width - 80, 480], radius=24, fill=(18, 25, 42, 255), outline=(60, 85, 130), width=2)
     draw.text((110, 305), "BREAKING FOCUS:", fill=(255, 75, 145))
     draw.text((110, 360), headline[:85], fill=(255, 255, 255))
     if len(headline) > 85:
         draw.text((110, 415), headline[85:170], fill=(255, 255, 255))
 
-    # Key Takeaways Section
+    # Key Insights Section
     draw.text((80, 530), "KEY INSIGHTS & SIGNALS:", fill=(170, 190, 225))
     
     # Bullet Card 1
@@ -63,12 +63,12 @@ def generate_cinematic_card(category_title, headline, bullet_one, bullet_two):
     draw.text((110, 765), "• POINT 02", fill=(255, 190, 40))
     draw.text((110, 805), bullet_two[:100], fill=(230, 235, 245))
 
-    # Footer Transit / Social CTA
+    # Footer
     draw.line([(80, 930), (width - 80, 930)], fill=(40, 58, 90), width=2)
     draw.text((80, 960), "COMMUTER RADAR • DELHI METRO & RAIL", fill=(120, 145, 180))
     draw.text((width - 340, 960), "@cultynex_daily", fill=(0, 229, 255))
 
-    # Save to local buffer (and disk for IG download)
+    # Save local file for Instagram export
     image.save("cultynex_instagram_post.png", "PNG", quality=95)
     
     out_buffer = BytesIO()
@@ -100,7 +100,7 @@ def send_telegram_quiz(q):
     }
     return requests.post(url, data=payload).json()
 
-# --- 3. DYNAMIC CONTENT ENGINE WITH GEMINI ---
+# --- 3. DYNAMIC CONTENT GENERATION WITH RETRY ---
 def generate_commuter_content():
     client = genai.Client(api_key=GEMINI_KEY)
     
@@ -148,21 +148,33 @@ def generate_commuter_content():
       ]
     }
     """
-    res = client.models.generate_content(
-        model="gemini-3.8-flash",
-        contents=prompt
-    )
-    raw = res.text.strip()
-    if raw.startswith("```json"):
-        raw = raw[7:]
-    if raw.startswith("```"):
-        raw = raw[3:]
-    if raw.endswith("```"):
-        raw = raw[:-3]
-    return json.loads(raw.strip())
+    
+    # 3 attempts with wait time agar 503 high demand ho
+    for attempt in range(1, 4):
+        try:
+            print(f"API Attempt {attempt} to fetch editorial content...")
+            res = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=prompt
+            )
+            raw = res.text.strip()
+            if raw.startswith("```json"):
+                raw = raw[7:]
+            if raw.startswith("```"):
+                raw = raw[3:]
+            if raw.endswith("```"):
+                raw = raw[:-3]
+            return json.loads(raw.strip())
+        except Exception as e:
+            print(f"Attempt {attempt} encountered: {e}")
+            if attempt < 3:
+                print("Waiting 6 seconds before retrying...")
+                time.sleep(6)
+            else:
+                raise e
 
 def main():
-    print("Fetching premium editorial from Gemini 3.8...")
+    print("Initiating Cultynex Multi-Platform Publishing Engine...")
     data = generate_commuter_content()
 
     print("Generating 1080x1080 Cinema Aesthetic Card...")
@@ -183,7 +195,7 @@ def main():
         print(f"[{idx}] Quiz Poll live: {resp.get('ok')}")
         time.sleep(2)
 
-    print("Done! Image post saved locally as 'cultynex_instagram_post.png' for Instagram upload.")
+    print("Pipeline completed successfully! Instagram asset exported.")
 
 if __name__ == "__main__":
     main()
