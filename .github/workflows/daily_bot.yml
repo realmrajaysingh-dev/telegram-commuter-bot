@@ -1,0 +1,29 @@
+name: Telegram Daily Commuter Quiz
+
+on:
+  schedule:
+    - cron: '30 2 * * *'   # Morning 8:00 AM IST
+    - cron: '30 12 * * *'  # Evening 6:00 PM IST
+  workflow_dispatch:
+
+jobs:
+  publish-quiz:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: pip install requests google-genai
+
+      - name: Run Telegram Publisher
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+        run: python bot.py
