@@ -4,71 +4,143 @@ import time
 import requests
 from io import BytesIO
 from datetime import datetime
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 from google import genai
 
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 CHANNEL_CHAT_ID = os.environ.get("TELEGRAM_CHANNEL_ID")
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
 
-# --- 1. ULTRA HD MODERN CARD GENERATOR (IG & TELEGRAM READY: 1080x1080) ---
+# Ubuntu GitHub Actions par built-in fonts load karne ke liye
+def get_font(size):
+    font_paths = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
+    ]
+    for p in font_paths:
+        if os.path.exists(p):
+            try:
+                return ImageFont.truetype(p, size)
+            except Exception:
+                pass
+    return ImageFont.load_default()
+
+def get_regular_font(size):
+    font_paths = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"
+    ]
+    for p in font_paths:
+        if os.path.exists(p):
+            try:
+                return ImageFont.truetype(p, size)
+            except Exception:
+                pass
+    return ImageFont.load_default()
+
+# --- 1. RICH HIGH-IMPACT 1080x1080 EDITORIAL CARD ---
 def generate_cinematic_card(category_title, headline, bullet_one, bullet_two):
     width, height = 1080, 1080
-    image = Image.new("RGBA", (width, height), (10, 14, 23, 255))
+    image = Image.new("RGBA", (width, height), (12, 16, 26, 255))
     draw = ImageDraw.Draw(image)
 
-    # Ambient Dark Tech Gradient
+    # Gradient Canvas Background
     for y in range(height):
         ratio = y / height
-        r = int(10 + (22 - 10) * ratio)
-        g = int(14 + (28 - 14) * ratio)
-        b = int(23 + (55 - 23) * ratio)
+        r = int(10 + (28 - 10) * ratio)
+        g = int(14 + (20 - 14) * ratio)
+        b = int(24 + (52 - 24) * ratio)
         draw.line([(0, y), (width, y)], fill=(r, g, b, 255))
 
-    # Glassmorphic Borders
-    pad = 40
-    draw.rounded_rectangle([pad, pad, width - pad, height - pad], radius=40, outline=(38, 55, 88), width=3)
-    draw.rounded_rectangle([pad + 8, pad + 8, width - pad - 8, height - pad - 8], radius=34, outline=(0, 229, 255, 120), width=2)
+    # Fonts Load
+    font_badge = get_font(28)
+    font_brand = get_font(24)
+    font_tag = get_font(22)
+    font_headline = get_font(42)
+    font_bullet_title = get_font(28)
+    font_bullet_body = get_regular_font(26)
+    font_footer = get_font(22)
 
-    # Glowing Category Badge
-    badge_x1, badge_y1, badge_x2, badge_y2 = 80, 85, 480, 155
-    draw.rounded_rectangle([badge_x1, badge_y1, badge_x2, badge_y2], radius=18, fill=(16, 36, 64, 255), outline=(0, 229, 255), width=2)
-    draw.text((115, 105), f"⚡ {category_title.upper()}", fill=(0, 240, 255))
+    # Exterior Glowing Frame
+    pad = 35
+    draw.rounded_rectangle([pad, pad, width - pad, height - pad], radius=32, outline=(42, 60, 95), width=3)
+    draw.rounded_rectangle([pad + 6, pad + 6, width - pad - 6, height - pad - 6], radius=28, outline=(0, 240, 255, 100), width=2)
 
-    # Date Header
-    today_str = datetime.now().strftime("%d %b %Y | IST")
-    draw.text((width - 320, 108), today_str, fill=(140, 160, 195))
+    # 1. Top Badges & Header
+    # Neon Category Badge
+    draw.rounded_rectangle([65, 65, 460, 135], radius=16, fill=(0, 240, 255, 30), outline=(0, 240, 255), width=2)
+    draw.text((85, 82), f"⚡ {category_title.upper()}", font=font_badge, fill=(0, 240, 255))
 
-    # Brand Title
-    draw.text((80, 200), "CULTYNEX MEDIA NETWORK", fill=(0, 229, 255))
-    draw.line([(80, 235), (width - 80, 235)], fill=(40, 58, 90), width=2)
+    # Live Date Badge
+    today_str = datetime.now().strftime("%d %b %Y | DAILY")
+    draw.rounded_rectangle([width - 360, 65, width - 65, 135], radius=16, fill=(255, 255, 255, 15), outline=(100, 120, 160), width=1)
+    draw.text((width - 335, 85), today_str, font=font_tag, fill=(190, 210, 240))
 
-    # Main Headline
-    draw.rounded_rectangle([80, 270, width - 80, 480], radius=24, fill=(18, 25, 42, 255), outline=(60, 85, 130), width=2)
-    draw.text((110, 305), "BREAKING FOCUS:", fill=(255, 75, 145))
-    draw.text((110, 360), headline[:85], fill=(255, 255, 255))
-    if len(headline) > 85:
-        draw.text((110, 415), headline[85:170], fill=(255, 255, 255))
+    # Brand Title Strip
+    draw.text((65, 170), "CULTYNEX MEDIA NETWORK • BREAKING RADAR", font=font_brand, fill=(255, 0, 128))
+    draw.line([(65, 210), (width - 65, 210)], fill=(45, 60, 90), width=2)
 
-    # Key Insights Section
-    draw.text((80, 530), "KEY INSIGHTS & SIGNALS:", fill=(170, 190, 225))
+    # 2. Hero Headline Box (High Contrast Glassmorphism)
+    draw.rounded_rectangle([65, 240, width - 65, 490], radius=24, fill=(18, 25, 45, 255), outline=(0, 240, 255), width=2)
     
-    # Bullet Card 1
-    draw.rounded_rectangle([80, 580, width - 80, 710], radius=18, fill=(15, 21, 35, 255), outline=(35, 50, 80), width=2)
-    draw.text((110, 605), "• POINT 01", fill=(0, 229, 255))
-    draw.text((110, 645), bullet_one[:100], fill=(230, 235, 245))
+    # Red "URGENT FOCUS" pill inside headline box
+    draw.rounded_rectangle([95, 265, 290, 310], radius=10, fill=(255, 45, 85), outline=(255, 100, 140), width=1)
+    draw.text((110, 273), "PRIORITY PULSE", font=font_tag, fill=(255, 255, 255))
 
-    # Bullet Card 2
-    draw.rounded_rectangle([80, 740, width - 80, 870], radius=18, fill=(15, 21, 35, 255), outline=(35, 50, 80), width=2)
-    draw.text((110, 765), "• POINT 02", fill=(255, 190, 40))
-    draw.text((110, 805), bullet_two[:100], fill=(230, 235, 245))
+    # Wrapped Large Headline
+    words = headline.split()
+    line1, line2 = "", ""
+    for w in words:
+        if len(line1 + " " + w) < 32:
+            line1 += (" " if line1 else "") + w
+        else:
+            line2 += (" " if line2 else "") + w
+            
+    draw.text((95, 335), line1, font=font_headline, fill=(255, 255, 255))
+    if line2:
+        draw.text((95, 395), line2[:40], font=font_headline, fill=(240, 245, 255))
 
-    # Footer
-    draw.line([(80, 930), (width - 80, 930)], fill=(40, 58, 90), width=2)
-    draw.text((80, 960), "COMMUTER RADAR • DELHI METRO & RAIL", fill=(120, 145, 180))
-    draw.text((width - 340, 960), "@cultynex_daily", fill=(0, 229, 255))
+    # 3. Two Detailed High-Value Bullet Cards
+    # Card 1: Tech / Infra Focus
+    draw.rounded_rectangle([65, 520, width - 65, 690], radius=20, fill=(16, 22, 38, 255), outline=(60, 85, 130), width=2)
+    draw.rounded_rectangle([85, 540, 260, 580], radius=8, fill=(0, 240, 255, 35))
+    draw.text((95, 547), "KEY SIGNAL 01", font=font_tag, fill=(0, 240, 255))
+    
+    # Body text wrapping
+    b1_words = bullet_one.split()
+    b1_l1, b1_l2 = "", ""
+    for w in b1_words:
+        if len(b1_l1 + " " + w) < 55:
+            b1_l1 += (" " if b1_l1 else "") + w
+        else:
+            b1_l2 += (" " if b1_l2 else "") + w
+    draw.text((85, 595), b1_l1, font=font_bullet_body, fill=(235, 240, 250))
+    if b1_l2:
+        draw.text((85, 635), b1_l2[:65], font=font_bullet_body, fill=(200, 215, 235))
 
-    # Save local file for Instagram export
+    # Card 2: Market / Economic Focus
+    draw.rounded_rectangle([65, 720, width - 65, 890], radius=20, fill=(16, 22, 38, 255), outline=(60, 85, 130), width=2)
+    draw.rounded_rectangle([85, 740, 260, 780], radius=8, fill=(255, 180, 0, 35))
+    draw.text((95, 747), "KEY SIGNAL 02", font=font_tag, fill=(255, 190, 40))
+    
+    b2_words = bullet_two.split()
+    b2_l1, b2_l2 = "", ""
+    for w in b2_words:
+        if len(b2_l1 + " " + w) < 55:
+            b2_l1 += (" " if b2_l1 else "") + w
+        else:
+            b2_l2 += (" " if b2_l2 else "") + w
+    draw.text((85, 795), b2_l1, font=font_bullet_body, fill=(235, 240, 250))
+    if b2_l2:
+        draw.text((85, 835), b2_l2[:65], font=font_bullet_body, fill=(200, 215, 235))
+
+    # 4. Footer & Socials
+    draw.line([(65, 930), (width - 65, 930)], fill=(45, 60, 90), width=2)
+    draw.text((65, 960), "COMMUTER RADAR • DELHI METRO & RAILWAY NETWORK", font=font_footer, fill=(140, 160, 195))
+    draw.text((width - 320, 960), "TELEGRAM: @cultynex_daily", font=font_footer, fill=(0, 240, 255))
+
     image.save("cultynex_instagram_post.png", "PNG", quality=95)
     
     out_buffer = BytesIO()
@@ -110,9 +182,9 @@ def generate_commuter_content():
     Return STRICT JSON (No backticks, no markdown fence):
     {
       "category": "TECH & CAPITAL",
-      "headline": "India AI GPU Compute Tender Accelerates Domestic Chip Infrastructure",
-      "bullet_one": "Govt approves ₹10,372 Cr GPU compute subsidy to reduce reliance on overseas cloud.",
-      "bullet_two": "Quick-commerce tech hubs expand instant electronics deliveries across major metro lines.",
+      "headline": "India AI GPU Compute Tender Accelerates Domestic Tech Fab Hubs",
+      "bullet_one": "Govt approves ₹10,372 Cr GPU compute tender with 18 high-profile global and domestic bids.",
+      "bullet_two": "Quick-commerce tech hubs scale instant 10-minute electronics deliveries along key metro lines.",
       "brief_html": "⚡ <b>CULTYNEX COMMUTER PULSE</b> | <i>Executive Edition</i>\\n━━━━━━━━━━━━━━━━━━━━━\\n\\n🚀 <b>BREAKING: TECH & CAPITAL</b>\\n• <b>India AI Mission:</b> ₹10,372 Cr GPU compute tender gets 18 bids from top domestic & global cloud leaders.\\n• <b>Quick Commerce:</b> 10-minute electronics deliveries expand across NCR corridors.\\n\\n📊 <b>MARKET & LIQUIDITY WATCH</b>\\n• <b>Nifty 50:</b> Sustaining strength near key resistance levels.\\n• <b>24K Gold:</b> ₹79,400 / 10g (Steady festive accumulation).\\n• <b>Bitcoin:</b> Firm above $105,000 baseline.\\n\\n🧠 <b>VOCABULARY ON THE GO</b>\\n• <b>Equanimity</b> [संयम / शांत मन]\\n<i>\"Maintain equanimity during the busiest metro transfers.\"</i>\\n\\n━━━━━━━━━━━━━━━━━━━━━\\n🎯 <b>COMMUTE CHALLENGE (5 RAPID-FIRE QUIZZES)</b>\\n<i>Test your market & tech speed before your station arrives! 👇</i>",
       "quizzes": [
         {
@@ -167,8 +239,7 @@ def generate_commuter_content():
         except Exception as e:
             print(f"Attempt {attempt} encountered: {e}")
             if attempt < 3:
-                print("Waiting 6 seconds before retrying...")
-                time.sleep(6)
+                time.sleep(5)
             else:
                 raise e
 
@@ -176,10 +247,10 @@ def main():
     print("Initiating Cultynex Multi-Platform Publishing Engine...")
     data = generate_commuter_content()
 
-    print("Generating 1080x1080 Cinema Aesthetic Card...")
+    print("Generating High-Fidelity 1080x1080 Editorial Card...")
     card_bytes = generate_cinematic_card(
-        data.get("category", "COMMUTER BRIEF"),
-        data.get("headline", "Global & National Pulse"),
+        data.get("category", "TECH & CAPITAL"),
+        data.get("headline", "Global & National Tech Pulse"),
         data.get("bullet_one", "Infrastructure & Tech expansion accelerating"),
         data.get("bullet_two", "Market liquidity remains robust across key asset classes")
     )
