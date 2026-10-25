@@ -17,15 +17,6 @@ CHAT_ID = os.getenv("TELEGRAM_CHANNEL_ID")
 
 genai.configure(api_key=GEMINI_KEY)
 
-# Active models with 1500 Requests/Day Free Quota
-FALLBACK_MODELS = [
-    "gemini-2.5-flash",
-    "gemini-1.5-flash",
-    "gemini-1.5-flash-8b",
-    "gemini-2.5-flash-lite",
-    "gemini-3.8-flash"
-]
-
 # 2. Tech Intelligence Tracks
 TECH_DOMAINS = [
     "Silicon Photonics & Co-Packaged Optics in AI Clusters",
@@ -36,7 +27,7 @@ TECH_DOMAINS = [
     "High-Density 3D Hybrid Wafer Stacking & Die-to-Die Interconnects"
 ]
 
-# 3. Curated High-Res Dark Hardware Visuals
+# 3. Curated High-Res Hardware Visuals
 CURATED_SILICON_IMAGES = [
     "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1400&q=85",
     "https://images.unsplash.com/photo-1629654297299-c8506221ca97?auto=format&fit=crop&w=1400&q=85",
@@ -68,24 +59,44 @@ LEAD_MAGNETS = [
 ]
 
 def generate_with_fallback(prompt):
-    """Tries active high-quota models sequentially to prevent 429 quota exhaustion."""
+    """Dynamically queries Google AI for valid models on this key and executes."""
+    try:
+        # Check all models that this specific key actually supports
+        available = [m.name for m in genai.list_models() if "generateContent" in m.supported_generation_methods]
+        print("Available models on account:", available)
+    except Exception as e:
+        print("Could not list models, using hardcoded defaults:", e)
+        available = []
+
+    # Priority queue: Standard production IDs with 1500 req/day quota first
+    priority_order = [
+        "models/gemini-1.5-flash",
+        "gemini-1.5-flash",
+        "models/gemini-1.5-pro",
+        "gemini-1.5-pro",
+        "models/gemini-1.0-pro",
+        "gemini-pro"
+    ]
+
+    candidates = [m for m in priority_order if m in available] or priority_order
+
     last_err = None
-    for model_name in FALLBACK_MODELS:
+    for model_name in candidates:
         try:
-            print(f"Attempting generation with: {model_name}")
+            print(f"Calling Gemini with model: {model_name}")
             model = genai.GenerativeModel(model_name)
             response = model.generate_content(prompt)
             if response and response.text:
-                print(f"Success with {model_name}")
+                print(f"Generation successful using {model_name}")
                 return response.text.strip()
         except Exception as e:
             last_err = e
-            print(f"Failed {model_name}: {e}. Switching to next candidate...")
+            print(f"Candidate {model_name} failed: {e}")
             continue
-    raise RuntimeError(f"All configured Gemini models failed. Last error: {last_err}")
+
+    raise RuntimeError(f"All model calls failed. Last error: {last_err}")
 
 def fetch_tech_dispatch():
-    """Generates structured payload for Telegram post, quiz, and metadata."""
     domain = random.choice(TECH_DOMAINS)
     seed = random.randint(10000, 99999)
     
@@ -121,15 +132,13 @@ def fetch_tech_dispatch():
     return json.loads(raw_text)
 
 def generate_and_publish_web_story(data, img_url):
-    """Writes an exhaustive, SEO-optimized 800+ word article and saves to articles/ folder."""
     os.makedirs("articles", exist_ok=True)
-    
     clean_slug = re.sub(r'[^a-zA-Z0-9]+', '-', data.get("headline", "intel-brief").lower()).strip('-')
     file_path = f"articles/{clean_slug}.html"
     
     article_prompt = f"""
     You are an elite Investigative Technology Journalist at The Hindu / Wired level.
-    Write an exhaustive, authoritative 800-to-1000 word deep-dive article based on:
+    Write an authoritative 800-to-1000 word deep-dive article based on:
     Headline: {data.get('headline')}
     Core Premise: {data.get('curiosity_teaser')}
     Key Metric: {data.get('metric_val')} ({data.get('metric_label')})
@@ -137,12 +146,10 @@ def generate_and_publish_web_story(data, img_url):
     FORMAT STRICTLY AS CLEAN HTML BODY TAGS (Use <h2>, <p>, <blockquote>, <strong>).
     DO NOT wrap in ```html codeblocks. DO NOT include <html>, <head>, or <body> tags.
 
-    Must include these 3 comprehensive sections with <h2> headers:
+    Include these 3 comprehensive sections with <h2> headers:
     1. <h2>The Structural Bottleneck & Background Context</h2>
     2. <h2>Engineering Architecture & Performance Teardown</h2>
     3. <h2>Strategic Industry Fallout: Winners, Losers, and the 2026-2028 Horizon</h2>
-
-    Make it rich with technical specifics, silicon physical laws, and industry analysis.
     """
     
     article_raw = generate_with_fallback(article_prompt)
@@ -204,7 +211,6 @@ def generate_and_publish_web_story(data, img_url):
     return f"[https://realmrajaysingh-dev.github.io/telegram-commuter-bot/articles/](https://realmrajaysingh-dev.github.io/telegram-commuter-bot/articles/){clean_slug}.html"
 
 async def render_editorial_card(data, img_url):
-    """Renders 1080x1350 card for Telegram."""
     with open("card_template.html", "r", encoding="utf-8") as f:
         template = f.read()
     
@@ -231,7 +237,6 @@ async def render_editorial_card(data, img_url):
         await browser.close()
 
 def send_telegram(data, direct_article_url):
-    """Sends visual photo, marketing hook, direct website link, and quiz to Telegram."""
     headline = html.escape(data.get("headline", "CULTYNEX INTEL"))
     hook = html.escape(data.get("telegram_hook", ""))
     teaser = html.escape(data.get("curiosity_teaser", ""))
