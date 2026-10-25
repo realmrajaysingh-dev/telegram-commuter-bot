@@ -6,12 +6,17 @@ on:
     - cron: '30 2,5,9,12,15 * * *'
   workflow_dispatch: # Allows manual 1-click run anytime
 
+permissions:
+  contents: write # Allows the workflow to commit and push generated articles
+
 jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -31,3 +36,11 @@ jobs:
           TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
         run: |
           python bot.py
+
+      - name: Commit & Push Generated Articles
+        run: |
+          git config --global user.name "Cultynex Bot"
+          git config --global user.email "bot@cultynex.media"
+          git add articles/
+          git commit -m "Auto-publish new longform intel article [skip ci]" || echo "No new article files to commit"
+          git push
