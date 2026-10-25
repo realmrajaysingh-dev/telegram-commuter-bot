@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>CULTYNEX STUDIO DECK</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background: #08080a; color: #f0f0f5; padding: 20px; display: flex; justify-content: center; min-height: 100vh; }
+    .card { width: 100%; max-width: 440px; background: #121318; border: 1px solid #232530; border-radius: 20px; padding: 24px; box-shadow: 0 20px 40px rgba(0,0,0,0.6); }
+    .badge { display: inline-block; background: #e63946; color: #fff; font-size: 10px; font-weight: 800; padding: 4px 10px; border-radius: 4px; letter-spacing: 1px; margin-bottom: 12px; }
+    h1 { font-size: 20px; font-weight: 800; letter-spacing: -0.5px; margin-bottom: 4px; }
+    p.sub { font-size: 13px; color: #7d8296; margin-bottom: 24px; }
+    .field { margin-bottom: 18px; }
+    label { display: block; font-size: 11px; font-weight: 700; color: #a0a5b8; letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 6px; }
+    input, textarea { width: 100%; background: #1a1c24; border: 1px solid #2b2e3d; border-radius: 10px; padding: 12px 14px; color: #fff; font-size: 14px; outline: none; transition: 0.2s; }
+    input:focus, textarea:focus { border-color: #e63946; }
+    .btn { width: 100%; background: #e63946; color: #fff; border: none; padding: 16px; border-radius: 12px; font-size: 15px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; transition: 0.2s; }
+    .btn:active { transform: scale(0.98); opacity: 0.9; }
+    .btn:disabled { background: #333644; cursor: not-allowed; }
+    #status { margin-top: 16px; padding: 12px; border-radius: 8px; font-size: 13px; text-align: center; display: none; }
+    .status-ok { background: rgba(46, 204, 113, 0.15); color: #2ecc71; border: 1px solid #2ecc71; }
+    .status-err { background: rgba(231, 76, 60, 0.15); color: #e74c3c; border: 1px solid #e74c3c; }
+  </style>
+</head>
+<body>
+
+<div class="card">
+  <div class="badge">CULTYNEX DISPATCH REMOTE</div>
+  <h1>Publish Studio Deck</h1>
+  <p class="sub">Trigger instant editorial workflow directly to Telegram.</p>
+
+  <div class="field">
+    <label>GitHub Personal Access Token (PAT)</label>
+    <input type="password" id="ghToken" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx">
+  </div>
+
+  <button class="btn" id="triggerBtn" onclick="runWorkflow()">
+    <span>⚡ BROADCAST DISPATCH NOW</span>
+  </button>
+
+  <div id="status"></div>
+</div>
+
+<script>
+  const savedToken = localStorage.getItem("c_gh_token");
+  if (savedToken) document.getElementById("ghToken").value = savedToken;
+
+  async function runWorkflow() {
+    const token = document.getElementById("ghToken").value.trim();
+    const btn = document.getElementById("triggerBtn");
+    const status = document.getElementById("status");
+
+    if (!token) {
+      alert("Please paste your GitHub Personal Access Token!");
+      return;
+    }
+
+    localStorage.setItem("c_gh_token", token);
+    btn.disabled = true;
+    btn.innerHTML = "<span>⏳ Triggering Engine...</span>";
+    status.style.display = "none";
+
+    try {
+      const res = await fetch("https://api.github.com/repos/realmrajaysingh-dev/telegram-commuter-bot/actions/workflows/daily_bot.yml/dispatches", {
+        method: "POST",
+        headers: {
+          "Accept": "application/vnd.github+json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({ ref: "main" })
+      });
+
+      if (res.status === 204) {
+        status.className = "status-ok";
+        status.innerText = "🚀 Workflow triggered! Post arriving on Telegram in ~1-2 min.";
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        status.className = "status-err";
+        status.innerText = "❌ Error: " + (errData.message || "Failed to trigger workflow");
+      }
+    } catch (err) {
+      status.className = "status-err";
+      status.innerText = "❌ Network error: " + err.message;
+    } finally {
+      status.style.display = "block";
+      btn.disabled = false;
+      btn.innerHTML = "<span>⚡ BROADCAST DISPATCH NOW</span>";
+    }
+  }
+</script>
+
+</body>
+</html>
