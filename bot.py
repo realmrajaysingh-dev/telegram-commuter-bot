@@ -59,42 +59,35 @@ LEAD_MAGNETS = [
 ]
 
 def generate_with_fallback(prompt):
-    """Dynamically queries Google AI for valid models on this key and executes."""
+    """Automatically queries Google AI Studio for whichever text models are currently active on this key."""
+    active_models = []
     try:
-        # Check all models that this specific key actually supports
-        available = [m.name for m in genai.list_models() if "generateContent" in m.supported_generation_methods]
-        print("Available models on account:", available)
+        for m in genai.list_models():
+            if "generateContent" in m.supported_generation_methods:
+                active_models.append(m.name)
+        print(f"Discovered {len(active_models)} available models on account: {active_models}")
     except Exception as e:
-        print("Could not list models, using hardcoded defaults:", e)
-        available = []
+        print("Model discovery error:", e)
 
-    # Priority queue: Standard production IDs with 1500 req/day quota first
-    priority_order = [
-        "models/gemini-1.5-flash",
-        "gemini-1.5-flash",
-        "models/gemini-1.5-pro",
-        "gemini-1.5-pro",
-        "models/gemini-1.0-pro",
-        "gemini-pro"
-    ]
-
-    candidates = [m for m in priority_order if m in available] or priority_order
+    # Agar list empty ho, toh safety fallback
+    if not active_models:
+        active_models = ["models/gemini-pro", "gemini-pro"]
 
     last_err = None
-    for model_name in candidates:
+    for model_name in active_models:
         try:
-            print(f"Calling Gemini with model: {model_name}")
+            print(f"Executing generation with: {model_name}")
             model = genai.GenerativeModel(model_name)
             response = model.generate_content(prompt)
             if response and response.text:
-                print(f"Generation successful using {model_name}")
+                print(f"SUCCESS with {model_name}")
                 return response.text.strip()
         except Exception as e:
             last_err = e
-            print(f"Candidate {model_name} failed: {e}")
+            print(f"Skipping {model_name} due to: {e}")
             continue
 
-    raise RuntimeError(f"All model calls failed. Last error: {last_err}")
+    raise RuntimeError(f"All available models failed. Last error: {last_err}")
 
 def fetch_tech_dispatch():
     domain = random.choice(TECH_DOMAINS)
