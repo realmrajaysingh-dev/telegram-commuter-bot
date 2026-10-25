@@ -1,156 +1,119 @@
 import os
+import re
 import json
-import time
+import asyncio
 import urllib.parse
 import requests
-from io import BytesIO
-from google import genai
+import google.generativeai as genai
+from playwright.async_api import async_playwright
 
-BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-CHANNEL_CHAT_ID = os.environ.get("TELEGRAM_CHANNEL_ID")
-GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
+# 1. API Keys & Secrets
+GEMINI_KEY = os.getenv("GEMINI_API_KEY")
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+CHAT_ID = os.getenv("TELEGRAM_CHANNEL_ID")
 
-def send_telegram_photo(image_bytes, caption):
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
-    files = {"photo": ("banner.jpg", image_bytes, "image/jpeg")}
-    data = {
-        "chat_id": CHANNEL_CHAT_ID,
-        "caption": caption,
-        "parse_mode": "HTML"
-    }
-    return requests.post(url, data=data, files=files).json()
+genai.configure(api_key=GEMINI_KEY)
 
-def send_telegram_quiz(q):
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPoll"
-    payload = {
-        "chat_id": CHANNEL_CHAT_ID,
-        "question": q["question"][:300],
-        "options": json.dumps(q["options"][:4]),
-        "type": "quiz",
-        "correct_option_id": q["correct_option_id"],
-        "explanation": q.get("explanation", "")[:200],
-        "is_anonymous": False
-    }
-    return requests.post(url, data=payload).json()
-
-# --- HYBRID IMAGE SYSTEM: CUSTOM FIRST -> AUTO FALLBACK ---
-def get_banner_image(prompt_text):
-    # 1. Check if user provided a custom image file in the repo
-    custom_names = ["custom_banner.jpg", "custom_banner.png", "custom_banner.jpeg"]
-    for fname in custom_names:
-        if os.path.exists(fname):
-            print(f"🎯 Found user custom image: {fname}! Using your high-quality poster.")
-            with open(fname, "rb") as f:
-                img_data = f.read()
-            # Save for Instagram artifact
-            with open("cultynex_instagram_post.png", "wb") as f_out:
-                f_out.write(img_data)
-            return BytesIO(img_data)
-
-    # 2. Fallback: Generate automatically via Flux if no custom image found
-    print("No custom image uploaded. Auto-generating high-contrast detailed sci-fi infographic...")
-    encoded_prompt = urllib.parse.quote(prompt_text)
-    image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1080&height=1080&nologo=true&model=flux"
-    
-    headers = {"User-Agent": "Mozilla/5.0"}
-    res = requests.get(image_url, headers=headers, timeout=60)
-    if res.status_code == 200:
-        with open("cultynex_instagram_post.png", "wb") as f:
-            f.write(res.content)
-        return BytesIO(res.content)
-    else:
-        raise Exception(f"Fallback image generation failed: {res.status_code}")
-
-def generate_commuter_content():
-    client = genai.Client(api_key=GEMINI_KEY)
+def fetch_tech_dispatch():
+    """Gemini generates editorial content, verified metrics, and simulated X quote."""
+    model = genai.GenerativeModel("gemini-1.5-flash")
     
     prompt = """
-    You are the Senior Creative Director for CULTYNEX MEDIA NETWORK.
-    Produce an elite, mind-blowing educational brief & quizzes for high-curiosity commuters and creators.
-    Also generate a detailed prompt for a complex cosmic sci-fi infographic poster (HUD telemetry, blueprint formulas, physics diagrams, black hole dynamics).
-    
-    Return STRICT JSON (No backticks, no markdown fence):
+    You are the Lead Tech & Macro Strategist for CULTYNEX MEDIA NETWORK.
+    Generate a high-authority editorial news brief on a major trending Tech/Silicon/AI breakthrough.
+
+    OUTPUT ONLY VALID JSON:
     {
-      "visual_prompt": "hyper-detailed sci-fi scientific infographic poster of deep space cosmic web, glowing neon blue and orange telemetry diagrams, intricate technical schematics, mathematical formulas, dark cosmic background, blueprint HUD overlay, 8k resolution, cinematic lighting, masterpiece",
-      "brief_html": "🌌 <b>CULTYNEX COSMIC & TECH RADAR</b> | <i>Deep-Dive Edition</i>\\n━━━━━━━━━━━━━━━━━━━━━\\n\\n⚡ <b>DEEP TECH BREAKTHROUGH</b>\\n• <b>Quantum-AI Synergy:</b> Next-gen neural accelerators bridge silicon micro-architecture with optical tensor meshes.\\n• <b>Compute Expansion:</b> ₹10,372 Cr GPU infra cluster fast-tracks indigenous foundational models.\\n\\n📊 <b>MACRO & CAPITAL MONITOR</b>\\n• <b>Bitcoin:</b> Consolidating institutional liquidity above $105,000.\\n• <b>Physical Gold:</b> ₹79,400 / 10g holding historic macro highs.\\n\\n🧠 <b>CONCEPT OF THE DAY</b>\\n• <b>Singularity:</b> The theoretical threshold where algorithmic intelligence surpasses total human cognitive capability.\\n━━━━━━━━━━━━━━━━━━━━━\\n🎯 <b>SPEED CHALLENGE (5 RAPID-FIRE QUIZZES)</b>\\n<i>Test your intellect before the next transit stop! 👇</i>",
-      "quizzes": [
-        {
-          "question": "⚛️ Physics: What region marks the point of no return around a Black Hole?",
-          "options": ["Event Horizon", "Accretion Disk", "Singularity", "Photon Sphere"],
-          "correct_option_id": 0,
-          "explanation": "The Event Horizon is the gravitational boundary from which nothing, not even light, can escape."
-        },
-        {
-          "question": "💻 Computing: What is the fundamental unit of quantum information?",
-          "options": ["Qubit", "Byte", "Transistor", "Pixel"],
-          "correct_option_id": 0,
-          "explanation": "A qubit (quantum bit) is the basic unit of information in quantum computing."
-        },
-        {
-          "question": "🪙 Gold: Hallmark 916 purity corresponds to:",
-          "options": ["22 Karat (91.6% Pure)", "24 Karat (99.9% Pure)", "18 Karat (75.0% Pure)", "14 Karat"],
-          "correct_option_id": 0,
-          "explanation": "Hallmark 916 means 91.6% pure gold, designated as 22 Karat."
-        },
-        {
-          "question": "🚆 Metro: Which metro system in India operates the longest network route?",
-          "options": ["Delhi Metro (DMRC)", "Namma Metro Bengaluru", "Mumbai Metro", "Kolkata Metro"],
-          "correct_option_id": 0,
-          "explanation": "Delhi Metro has the largest operational network spanning over 390+ kilometers."
-        },
-        {
-          "question": "🚀 Space: What theoretical passage creates shortcuts through spacetime?",
-          "options": ["Einstein-Rosen Bridge (Wormhole)", "Kuiper Belt", "Oort Cloud", "Dyson Sphere"],
-          "correct_option_id": 0,
-          "explanation": "An Einstein-Rosen bridge is a speculative structure linking disparate points in spacetime."
-        }
-      ]
+      "tag": "CULTYNEX DISPATCH",
+      "read_time": "2 MIN READ",
+      "headline": "PUNCHY EDITORIAL HEADLINE IN UPPERCASE (MAX 10 WORDS)",
+      "image_keyword": "single specific visual subject like microchip wafer or datacenter or humanoid robot",
+      "tweet_author": "Tech Analyst",
+      "tweet_handle": "@TechAnalyst",
+      "tweet_text": "One concise, hard-hitting analytical reaction on market or architecture impact.",
+      "metric_val": "+35%",
+      "metric_label": "ENERGY EFFICIENCY | 2026 ROADMAP",
+      "telegram_body": "3 crisp editorial bullet points explaining The Big Picture, Key Numbers, and Why It Matters.",
+      "quiz_question": "One sharp single-choice question based on this event.",
+      "options": ["Correct option", "Wrong option 1", "Wrong option 2", "Wrong option 3"],
+      "correct_id": 0
     }
     """
     
-    for attempt in range(1, 4):
-        try:
-            print(f"API Attempt {attempt} to fetch editorial content...")
-            res = client.models.generate_content(
-                model="gemini-3.8-flash",
-                contents=prompt
-            )
-            raw = res.text.strip()
-            if raw.startswith("```json"):
-                raw = raw[7:]
-            if raw.startswith("```"):
-                raw = raw[3:]
-            if raw.endswith("```"):
-                raw = raw[:-3]
-            data = json.loads(raw.strip())
-            return data
-        except Exception as e:
-            print(f"Attempt {attempt} failed: {e}")
-            if attempt < 3:
-                time.sleep(5)
-            else:
-                raise e
+    res = model.generate_content(prompt)
+    text = res.text.strip()
+    match = re.search(r"\{.*\}", text, re.DOTALL)
+    if match:
+        return json.loads(match.group(0))
+    return json.loads(text)
 
-def main():
-    print("Initiating Cultynex Hybrid Publishing Engine...")
-    data = generate_commuter_content()
+async def render_editorial_card(data):
+    """Fills card_template.html and renders a 1080x1350 PNG via Playwright."""
+    with open("card_template.html", "r", encoding="utf-8") as f:
+        html = f.read()
+    
+    # High-quality Unsplash editorial visual
+    kw = urllib.parse.quote(data.get("image_keyword", "technology"))
+    img_url = f"https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1200&q=80"
+    
+    html = html.replace("{{TAG}}", data.get("tag", "CULTYNEX DISPATCH"))
+    html = html.replace("{{READ_TIME}}", data.get("read_time", "2 MIN READ"))
+    html = html.replace("{{HEADLINE}}", data.get("headline", "TECH ADVANCEMENT"))
+    html = html.replace("{{IMAGE_URL}}", img_url)
+    html = html.replace("{{TWEET_AUTHOR}}", data.get("tweet_author", "Tech Analyst"))
+    html = html.replace("{{TWEET_HANDLE}}", data.get("tweet_handle", "@TechAnalyst"))
+    html = html.replace("{{TWEET_TEXT}}", data.get("tweet_text", ""))
+    html = html.replace("{{METRIC_VAL}}", data.get("metric_val", "+35%"))
+    html = html.replace("{{METRIC_LABEL}}", data.get("metric_label", "EFFICIENCY"))
+    
+    with open("rendered_card.html", "w", encoding="utf-8") as f:
+        f.write(html)
+        
+    async with async_playwright() as p:
+        browser = await p.chromium.launch()
+        page = await browser.new_page(viewport={"width": 1080, "height": 1350})
+        await page.goto(f"file://{os.path.abspath('rendered_card.html')}")
+        await page.wait_for_timeout(1000)
+        await page.screenshot(path="final_card.png")
+        await browser.close()
 
-    # Get Image (Custom File OR Auto AI)
-    banner_stream = get_banner_image(data["visual_prompt"])
+def send_telegram(data):
+    """Sends the rendered card photo + brief + quiz to Telegram."""
+    caption = (
+        f"⚡ <b>{data['headline']}</b>\n\n"
+        f"{data['telegram_body']}\n\n"
+        f"🌐 <i>Full dispatch & analytical breakdown on Cultynex Web</i>"
+    )
+    
+    # 1. Send Photo
+    with open("final_card.png", "rb") as photo:
+        requests.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
+            data={"chat_id": CHAT_ID, "caption": caption, "parse_mode": "HTML"},
+            files={"photo": photo}
+        )
+        
+    # 2. Send Quiz Poll
+    requests.post(
+        f"https://api.telegram.org/bot{BOT_TOKEN}/sendPoll",
+        json={
+            "chat_id": CHAT_ID,
+            "question": f"🎯 {data['quiz_question']}",
+            "options": data["options"],
+            "type": "quiz",
+            "correct_option_id": data["correct_id"],
+            "is_anonymous": False
+        }
+    )
 
-    # Publish to Telegram
-    print("Publishing to Telegram channel @cultynex_daily...")
-    send_telegram_photo(banner_stream, data["brief_html"])
-    time.sleep(2)
-
-    # Publish Quizzes
-    print(f"Deploying {len(data['quizzes'])} live interactive quizzes...")
-    for idx, q in enumerate(data["quizzes"], 1):
-        resp = send_telegram_quiz(q)
-        print(f"[{idx}] Quiz Poll live: {resp.get('ok')}")
-        time.sleep(2)
-
-    print("Complete! Channel updated and Instagram artifact generated.")
+async def main():
+    print("Generating editorial payload...")
+    data = fetch_tech_dispatch()
+    print("Rendering high-res card...")
+    await render_editorial_card(data)
+    print("Broadcasting to Telegram...")
+    send_telegram(data)
+    print("Complete!")
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
