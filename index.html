@@ -2,469 +2,176 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Cultynex Studio | Editorial Dispatch Command</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;900&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CULTYNEX DAILY | Terminal & Media Network</title>
   <style>
-    body {
-      font-family: 'Inter', sans-serif;
-      background-color: #080A0C;
-      color: #E2E8F0;
-      -webkit-tap-highlight-color: transparent;
-    }
-    .mono {
-      font-family: 'JetBrains Mono', monospace;
-    }
-    .cinzel {
-      font-family: 'Cinzel', serif;
-    }
-    .border-subtle {
-      border-color: rgba(255, 255, 255, 0.08);
-    }
-    .bg-pitch {
-      background-color: #0D0F12;
-    }
-    .bg-card {
-      background-color: #12151A;
-    }
-    .accent-red {
-      color: #E53935;
-    }
-    .bg-accent-red {
-      background-color: #E53935;
-    }
-    input, textarea, select {
-      background-color: #0A0C0E !important;
-      border: 1px solid rgba(255, 255, 255, 0.12) !important;
-      color: #F8FAFC !important;
-    }
-    input:focus, textarea:focus, select:focus {
-      border-color: #E53935 !important;
-      outline: none !important;
-      box-shadow: 0 0 0 2px rgba(229, 57, 53, 0.2) !important;
-    }
-    /* Hide scrollbar for tabs */
-    .no-scrollbar::-webkit-scrollbar {
-      display: none;
-    }
-    .no-scrollbar {
-      -ms-overflow-style: none;
-      scrollbar-width: none;
+    @import url('https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;0,6..72,700;1,6..72,400&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap');
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #fafafa; color: #111; font-family: 'Inter', sans-serif; line-height: 1.5; }
+
+    /* Top Ticker Bar */
+    .top-ticker { background: #0b0c10; color: #888; font-family: 'JetBrains Mono', monospace; font-size: 11px; padding: 8px 30px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #222; }
+    .pulse-dot { display: inline-block; width: 6px; height: 6px; background: #e63946; border-radius: 50%; margin-right: 6px; }
+    .ticker-left { color: #eee; }
+    .ticker-right span { margin-left: 16px; color: #ccc; }
+    .num-neg { color: #e63946; }
+    .num-pos { color: #2ecc71; }
+
+    /* Header Nav */
+    header { background: #fff; border-bottom: 1px solid #eaeaea; padding: 18px 40px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; }
+    .brand-wrap { display: flex; align-items: center; gap: 10px; text-decoration: none; color: inherit; }
+    .brand-mark { background: #e63946; color: #fff; font-weight: 900; font-size: 13px; padding: 4px 8px; border-radius: 3px; letter-spacing: 1px; }
+    .brand-name { font-weight: 800; font-size: 20px; letter-spacing: -0.5px; }
+    .nav-links { display: flex; gap: 24px; list-style: none; font-size: 14px; font-weight: 600; color: #555; }
+    .nav-links a { text-decoration: none; color: inherit; transition: 0.2s; }
+    .nav-links a:hover, .nav-links a.active { color: #111; border-bottom: 2px solid #111; padding-bottom: 4px; }
+    .join-tg-btn { background: #0088cc; color: #fff; padding: 10px 18px; border-radius: 20px; font-size: 13px; font-weight: 700; text-decoration: none; display: flex; align-items: center; gap: 8px; transition: 0.2s; }
+    .join-tg-btn:hover { background: #0077b5; }
+
+    /* Layout Grid */
+    .container { max-width: 1200px; margin: 30px auto; padding: 0 20px; display: grid; grid-template-columns: 1fr 340px; gap: 40px; }
+
+    /* Lead Story */
+    .hero-thumb { width: 100%; height: 420px; border-radius: 8px; overflow: hidden; background: #000; position: relative; margin-bottom: 20px; }
+    .hero-thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .badge-wrap { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; }
+    .badge-pill { background: #e63946; color: #fff; font-size: 10px; font-weight: 800; padding: 3px 8px; border-radius: 2px; letter-spacing: 1px; text-transform: uppercase; }
+    .read-meta { font-size: 12px; color: #777; font-weight: 500; }
+    .lead-headline { font-family: 'Newsreader', Georgia, serif; font-size: 38px; line-height: 1.18; font-weight: 700; letter-spacing: -0.5px; margin-bottom: 16px; color: #050505; }
+    .lead-summary { font-size: 16px; color: #444; line-height: 1.6; margin-bottom: 24px; }
+
+    /* Analysis Box */
+    .analysis-box { background: #f3f5f8; border-left: 3px solid #111; padding: 20px; border-radius: 0 6px 6px 0; margin-bottom: 24px; }
+    .analysis-box h4 { font-size: 12px; text-transform: uppercase; font-family: 'JetBrains Mono', monospace; color: #555; margin-bottom: 10px; letter-spacing: 0.5px; }
+    .analysis-box ul { list-style: none; display: flex; flex-direction: column; gap: 10px; }
+    .analysis-box li { font-size: 14px; color: #222; }
+    .analysis-box li strong { color: #000; }
+
+    /* Sidebar Widgets */
+    .sidebar { display: flex; flex-direction: column; gap: 24px; }
+    .widget { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 20px; }
+    .widget-head { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #f0f0f0; padding-bottom: 12px; margin-bottom: 14px; }
+    .widget-title { font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: #111; }
+    .status-tag { font-size: 11px; font-weight: 700; color: #2ecc71; }
+    .transit-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px dashed #f0f0f0; font-size: 13px; }
+    .transit-name { font-weight: 600; color: #333; }
+    .transit-val { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #555; }
+
+    .word-card { background: #0c0d12; color: #fff; border-radius: 10px; padding: 20px; border: 1px solid #222; }
+    .word-meta { font-size: 10px; font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+    .word-title { font-size: 20px; font-weight: 700; font-family: 'Newsreader', serif; margin-bottom: 4px; }
+    .word-meaning { font-size: 12px; color: #999; margin-bottom: 12px; }
+    .word-quote { font-size: 13px; color: #ddd; font-style: italic; line-height: 1.4; border-left: 2px solid #e63946; padding-left: 10px; }
+
+    @media (max-width: 860px) {
+      .container { grid-template-columns: 1fr; }
+      .lead-headline { font-size: 28px; }
+      .hero-thumb { height: 260px; }
     }
   </style>
 </head>
-<body class="min-h-screen pb-16 antialiased selection:bg-red-900 selection:text-white">
+<body>
 
-  <!-- Top Sticky Navigation -->
-  <header class="sticky top-0 z-40 bg-pitch/90 backdrop-blur-md border-b border-subtle px-4 py-3.5 flex items-center justify-between">
-    <div class="flex items-center space-x-3">
-      <div class="h-3 w-3 rounded-full bg-accent-red animate-pulse"></div>
-      <div class="flex flex-col">
-        <span class="mono text-xs font-bold tracking-widest text-neutral-400 uppercase">Editorial Engine</span>
-        <span class="cinzel text-base font-black tracking-wider text-white">CULTYNEX DISPATCH</span>
-      </div>
+  <!-- Live Pulse -->
+  <div class="top-ticker">
+    <div class="ticker-left">
+      <span class="pulse-dot"></span>LIVE PULSE: Delhi Transit Operational • Silicon Dispatch Dispatched
     </div>
-    <button onclick="toggleConfigModal()" class="mono text-xs px-3 py-1.5 rounded-lg border border-subtle bg-neutral-900/80 hover:bg-neutral-800 text-neutral-300 flex items-center space-x-1.5 transition">
-      <svg class="w-3.5 h-3.5 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-      </svg>
-      <span>Settings</span>
-    </button>
-  </header>
-
-  <!-- Main Container -->
-  <main class="max-w-xl mx-auto px-4 pt-5 space-y-5">
-
-    <!-- Status Banner / Connection Status -->
-    <div id="connectionPill" class="flex items-center justify-between p-3 rounded-xl bg-card border border-subtle">
-      <div class="flex items-center space-x-2.5">
-        <div id="statusDot" class="w-2.5 h-2.5 rounded-full bg-amber-500"></div>
-        <span id="statusText" class="mono text-xs text-neutral-300">Checking GitHub configuration...</span>
-      </div>
-      <span class="mono text-[10px] text-neutral-500 uppercase">Cloud Runner</span>
-    </div>
-
-    <!-- Quick Mode Toggle -->
-    <div class="grid grid-cols-2 gap-2 p-1 bg-card rounded-xl border border-subtle text-xs mono font-semibold">
-      <button id="btnModeAuto" onclick="setMode('auto')" class="py-2.5 rounded-lg text-center bg-accent-red text-white transition shadow-sm">
-        ⚡ 100% Autonomous AI
-      </button>
-      <button id="btnModeCustom" onclick="setMode('custom')" class="py-2.5 rounded-lg text-center text-neutral-400 hover:text-white transition">
-        ✍️ Custom Input / Link
-      </button>
-    </div>
-
-    <!-- Main Command Card -->
-    <div class="bg-card rounded-2xl border border-subtle p-5 shadow-2xl space-y-4">
-      
-      <!-- Autonomous Mode Info Box -->
-      <div id="autoModeContainer" class="space-y-3">
-        <div class="p-4 rounded-xl bg-neutral-900/60 border border-neutral-800">
-          <div class="flex items-center space-x-2 text-accent-red mb-1">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
-            </svg>
-            <span class="mono text-xs font-bold uppercase tracking-wider">Zero-Touch Automation</span>
-          </div>
-          <p class="text-xs text-neutral-400 leading-relaxed">
-            Gemini AI will autonomously scan high-impact global semiconductor, silicon computing, and AI infrastructure breakthroughs, format the editorial analysis, generate the dark card graphic, and post the live quiz.
-          </p>
-        </div>
-      </div>
-
-      <!-- Custom Mode Fields (Hidden by default) -->
-      <div id="customModeContainer" class="hidden space-y-4">
-        
-        <div>
-          <label class="block mono text-[11px] font-semibold text-neutral-300 uppercase mb-1.5 tracking-wider">
-            Headline / Core Topic (or Source Link)
-          </label>
-          <input type="text" id="inputTopic" placeholder="e.g., TSMC 2nm Nanosheet Transition Yields 35% Gain" class="w-full text-sm px-3.5 py-2.5 rounded-xl font-normal transition placeholder:text-neutral-600">
-        </div>
-
-        <div>
-          <label class="block mono text-[11px] font-semibold text-neutral-300 uppercase mb-1.5 tracking-wider">
-            Raw Research Notes / Analytical Angle (Optional)
-          </label>
-          <textarea id="inputNotes" rows="3" placeholder="Key data points, why it matters, macro implication, or paste a tweet URL..." class="w-full text-sm px-3.5 py-2.5 rounded-xl transition placeholder:text-neutral-600"></textarea>
-        </div>
-
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div>
-            <label class="block mono text-[11px] font-semibold text-neutral-300 uppercase mb-1.5 tracking-wider">
-              Custom Image URL (Optional)
-            </label>
-            <input type="url" id="inputImageUrl" placeholder="https://..." class="w-full text-sm px-3.5 py-2.5 rounded-xl transition placeholder:text-neutral-600">
-          </div>
-          <div>
-            <label class="block mono text-[11px] font-semibold text-neutral-300 uppercase mb-1.5 tracking-wider">
-              X Handle / Analyst Quote
-            </label>
-            <input type="text" id="inputQuote" placeholder="@TechAnalyst" class="w-full text-sm px-3.5 py-2.5 rounded-xl transition placeholder:text-neutral-600">
-          </div>
-        </div>
-
-      </div>
-
-      <!-- Primary Action Trigger Button -->
-      <button id="btnDispatch" onclick="triggerWorkflow()" class="w-full py-4 px-6 rounded-xl bg-accent-red hover:bg-red-600 active:scale-[0.98] transition font-bold text-white flex items-center justify-center space-x-2.5 shadow-lg shadow-red-950/40">
-        <svg id="btnIcon" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
-        </svg>
-        <span id="btnLabel" class="text-sm font-semibold tracking-wide uppercase">Broadcast Dispatch Now</span>
-      </button>
-
-      <!-- Alert / Status message box -->
-      <div id="responseBox" class="hidden p-3.5 rounded-xl border text-xs mono transition-all"></div>
-
-    </div>
-
-    <!-- Realtime Card Preview Frame -->
-    <div class="bg-card rounded-2xl border border-subtle p-4 space-y-3">
-      <div class="flex items-center justify-between border-b border-subtle pb-2.5">
-        <span class="mono text-xs font-bold text-neutral-300 tracking-wider uppercase">Live Visual Aesthetic</span>
-        <span class="mono text-[10px] text-neutral-500">1080 &times; 1350 Target</span>
-      </div>
-
-      <div class="rounded-xl border border-neutral-800 bg-black p-4 space-y-3">
-        <div class="flex items-center justify-between">
-          <span class="text-[9px] font-black uppercase tracking-wider bg-accent-red text-white px-2 py-0.5 rounded">CULTYNEX DISPATCH</span>
-          <span class="mono text-[9px] text-neutral-400">2 MIN READ</span>
-        </div>
-        <div id="previewHeadline" class="cinzel text-sm font-bold text-white uppercase leading-snug">
-          BACKSIDE POWER DELIVERY CRACKS AI SILICON POWER WALL
-        </div>
-        <div class="h-28 w-full rounded-lg bg-neutral-900 border border-neutral-800 overflow-hidden relative">
-          <img id="previewImage" src="https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=600&q=80" alt="Preview" class="w-full h-full object-cover">
-          <div class="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
-        </div>
-        <div class="bg-neutral-900/90 rounded-lg p-2.5 border border-neutral-800 text-[11px] space-y-1">
-          <div class="flex items-center space-x-1.5 font-bold text-white text-[10px]">
-            <span class="w-3.5 h-3.5 rounded-full bg-neutral-700 flex items-center justify-center text-[8px]">X</span>
-            <span>Cultynex Strategy Desk</span>
-          </div>
-          <p id="previewQuote" class="text-neutral-300 text-[10px] leading-tight">
-            High-density cell routing unlocked via dual-sided wafer interconnects.
-          </p>
-        </div>
-        <div class="flex items-center justify-between text-[10px] mono pt-1 border-t border-neutral-800 text-neutral-400">
-          <span class="text-accent-red font-bold">+35% EFFICIENCY</span>
-          <span>TELEGRAM DISPATCH &rarr;</span>
-        </div>
-      </div>
-    </div>
-
-    <!-- Recent Dispatches Log -->
-    <div class="bg-card rounded-2xl border border-subtle p-4 space-y-3">
-      <div class="flex items-center justify-between">
-        <span class="mono text-xs font-bold text-neutral-300 tracking-wider uppercase">Trigger History</span>
-        <button onclick="clearHistory()" class="mono text-[10px] text-neutral-500 hover:text-neutral-300">Clear</button>
-      </div>
-      <div id="historyList" class="space-y-2 mono text-xs text-neutral-400">
-        <div class="p-2.5 rounded-lg bg-neutral-900/50 border border-neutral-800/80 text-[11px] text-neutral-500">
-          No dispatches triggered yet from this device.
-        </div>
-      </div>
-    </div>
-
-  </main>
-
-  <!-- GitHub Settings Modal -->
-  <div id="configModal" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center p-4">
-    <div class="bg-pitch border border-subtle w-full max-w-md rounded-2xl p-5 space-y-4 shadow-2xl">
-      <div class="flex items-center justify-between border-b border-subtle pb-3">
-        <div class="flex items-center space-x-2">
-          <span class="h-2 w-2 rounded-full bg-accent-red"></span>
-          <h3 class="mono text-sm font-bold text-white uppercase tracking-wider">GitHub API Bridge</h3>
-        </div>
-        <button onclick="toggleConfigModal()" class="text-neutral-400 hover:text-white">&times;</button>
-      </div>
-
-      <p class="text-xs text-neutral-400 leading-relaxed">
-        Stored locally on your phone/browser. Never shared. Allows triggering the workflow with a single tap.
-      </p>
-
-      <div class="space-y-3 mono text-xs">
-        <div>
-          <label class="block text-neutral-300 mb-1">GitHub Owner / Username</label>
-          <input type="text" id="cfgOwner" value="realmrajaysingh-dev" class="w-full px-3 py-2 rounded-lg">
-        </div>
-        <div>
-          <label class="block text-neutral-300 mb-1">Repository Name</label>
-          <input type="text" id="cfgRepo" value="telegram-commuter-bot" class="w-full px-3 py-2 rounded-lg">
-        </div>
-        <div>
-          <label class="block text-neutral-300 mb-1">Workflow File Name</label>
-          <input type="text" id="cfgWorkflow" value="daily_bot.yml" class="w-full px-3 py-2 rounded-lg">
-        </div>
-        <div>
-          <label class="block text-neutral-300 mb-1">Personal Access Token (classic / fine-grained)</label>
-          <input type="password" id="cfgToken" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" class="w-full px-3 py-2 rounded-lg">
-          <span class="text-[10px] text-neutral-500 mt-1 block">Requires <code class="text-neutral-400">repo</code> or <code class="text-neutral-400">actions:write</code> scope.</span>
-        </div>
-      </div>
-
-      <div class="flex justify-end space-x-2 pt-2">
-        <button onclick="toggleConfigModal()" class="px-4 py-2 rounded-lg text-xs mono text-neutral-400 hover:text-white">Cancel</button>
-        <button onclick="saveConfig()" class="px-4 py-2 rounded-lg text-xs mono font-bold bg-accent-red text-white hover:bg-red-600 transition">Save & Connect</button>
-      </div>
+    <div class="ticker-right">
+      <span>NIFTY: <b class="num-neg">22,600 (-0.39%)</b></span>
+      <span>USD/INR: <b>₹94.95</b></span>
+      <span>BTC: <b>$80,670</b></span>
     </div>
   </div>
 
-  <script>
-    // State & Defaults
-    let activeMode = 'auto';
+  <!-- Header Nav -->
+  <header>
+    <a href="#" class="brand-wrap">
+      <span class="brand-mark">CULTYNEX</span>
+      <span class="brand-name">DAILY</span>
+    </a>
+    <ul class="nav-links">
+      <li><a href="#" class="active">Top Briefs</a></li>
+      <li><a href="#">Markets & Assets</a></li>
+      <li><a href="#">Company List</a></li>
+      <li><a href="#">Box Office</a></li>
+      <li><a href="#">Commuter Radar</a></li>
+    </ul>
+    <a href="https://t.me/cultynex_daily" target="_blank" class="join-tg-btn">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.52 2.77-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .36z"/></svg>
+      Join Telegram
+    </a>
+  </header>
 
-    const DEFAULT_CONFIG = {
-      owner: 'realmrajaysingh-dev',
-      repo: 'telegram-commuter-bot',
-      workflow: 'daily_bot.yml',
-      token: ''
-    };
+  <!-- Main Content Layout -->
+  <div class="container">
+    
+    <!-- Main Article -->
+    <main>
+      <div class="hero-thumb">
+        <img src="https://images.unsplash.com/photo-1550751827-4bd374c3f58b?auto=format&fit=crop&w=1200&q=85" alt="Hardware Infrastructure" />
+      </div>
 
-    function loadConfig() {
-      const saved = localStorage.getItem('cultynex_gh_config');
-      if (saved) {
-        try {
-          return { ...DEFAULT_CONFIG, ...JSON.parse(saved) };
-        } catch (e) {
-          return DEFAULT_CONFIG;
-        }
-      }
-      return DEFAULT_CONFIG;
-    }
+      <div class="badge-wrap">
+        <span class="badge-pill">BREAKING COVERAGE</span>
+        <span class="read-meta">• 3 MIN READ • UPDATED LIVE</span>
+      </div>
 
-    function checkConnection() {
-      const cfg = loadConfig();
-      const dot = document.getElementById('statusDot');
-      const text = document.getElementById('statusText');
+      <h1 class="lead-headline">India AI Mission: ₹10,372 Cr GPU Compute Tender Receives 18 Bids from Global & Local Cloud Giants</h1>
 
-      if (!cfg.token) {
-        dot.className = 'w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse';
-        text.innerText = 'Token required. Tap Settings to link GitHub.';
-      } else {
-        dot.className = 'w-2.5 h-2.5 rounded-full bg-emerald-500';
-        text.innerText = `Connected: ${cfg.owner}/${cfg.repo}`;
-      }
-    }
+      <p class="lead-summary">
+        The Ministry of Electronics and IT (MeitY) has officially closed the qualification round for its landmark compute infrastructure tender, clearing the runway for 10,000+ top-tier GPUs to be deployed within Indian soil.
+      </p>
 
-    function toggleConfigModal() {
-      const modal = document.getElementById('configModal');
-      const cfg = loadConfig();
+      <div class="analysis-box">
+        <h4>WHY IT MATTERS TO YOU</h4>
+        <ul>
+          <li><strong>• Cloud Cost Reduction:</strong> Indian startups and AI labs will get access to subsidized compute power at roughly 40–50% below international rates.</li>
+          <li><strong>• Sovereign AI:</strong> Reduces heavy dependency on overseas cloud clusters for Indian languages and local model training.</li>
+        </ul>
+      </div>
+
+      <div style="font-size:14px; color:#666; display:flex; justify-content:space-between; align-items:center; border-top:1px solid #eee; padding-top:16px;">
+        <span>By Cultynex Editorial Desk</span>
+        <a href="https://t.me/cultynex_daily" style="color:#0088cc; font-weight:600; text-decoration:none;">Discuss in Telegram Channel &rarr;</a>
+      </div>
+    </main>
+
+    <!-- Sidebar Widgets -->
+    <aside class="sidebar">
       
-      document.getElementById('cfgOwner').value = cfg.owner;
-      document.getElementById('cfgRepo').value = cfg.repo;
-      document.getElementById('cfgWorkflow').value = cfg.workflow;
-      document.getElementById('cfgToken').value = cfg.token;
-
-      modal.classList.toggle('hidden');
-    }
-
-    function saveConfig() {
-      const newConfig = {
-        owner: document.getElementById('cfgOwner').value.trim() || DEFAULT_CONFIG.owner,
-        repo: document.getElementById('cfgRepo').value.trim() || DEFAULT_CONFIG.repo,
-        workflow: document.getElementById('cfgWorkflow').value.trim() || DEFAULT_CONFIG.workflow,
-        token: document.getElementById('cfgToken').value.trim()
-      };
-      localStorage.setItem('cultynex_gh_config', JSON.stringify(newConfig));
-      toggleConfigModal();
-      checkConnection();
-      showToast('Settings saved successfully!', 'success');
-    }
-
-    function setMode(mode) {
-      activeMode = mode;
-      const btnAuto = document.getElementById('btnModeAuto');
-      const btnCustom = document.getElementById('btnModeCustom');
-      const autoBox = document.getElementById('autoModeContainer');
-      const customBox = document.getElementById('customModeContainer');
-
-      if (mode === 'auto') {
-        btnAuto.className = 'py-2.5 rounded-lg text-center bg-accent-red text-white transition shadow-sm';
-        btnCustom.className = 'py-2.5 rounded-lg text-center text-neutral-400 hover:text-white transition';
-        autoBox.classList.remove('hidden');
-        customBox.classList.add('hidden');
-      } else {
-        btnCustom.className = 'py-2.5 rounded-lg text-center bg-accent-red text-white transition shadow-sm';
-        btnAuto.className = 'py-2.5 rounded-lg text-center text-neutral-400 hover:text-white transition';
-        customBox.classList.remove('hidden');
-        autoBox.classList.add('hidden');
-      }
-    }
-
-    // Live preview binding
-    document.getElementById('inputTopic').addEventListener('input', (e) => {
-      const val = e.target.value.trim();
-      document.getElementById('previewHeadline').innerText = val || 'BACKSIDE POWER DELIVERY CRACKS AI SILICON POWER WALL';
-    });
-
-    document.getElementById('inputQuote').addEventListener('input', (e) => {
-      const val = e.target.value.trim();
-      document.getElementById('previewQuote').innerText = val || 'High-density cell routing unlocked via dual-sided wafer interconnects.';
-    });
-
-    document.getElementById('inputImageUrl').addEventListener('input', (e) => {
-      const val = e.target.value.trim();
-      if (val.startsWith('http')) {
-        document.getElementById('previewImage').src = val;
-      }
-    });
-
-    function showToast(msg, type = 'info') {
-      const box = document.getElementById('responseBox');
-      box.classList.remove('hidden', 'bg-red-950/60', 'border-red-800', 'text-red-300', 'bg-emerald-950/60', 'border-emerald-800', 'text-emerald-300', 'bg-neutral-900', 'border-neutral-800', 'text-neutral-300');
-      
-      if (type === 'error') {
-        box.classList.add('bg-red-950/60', 'border-red-800', 'text-red-300');
-      } else if (type === 'success') {
-        box.classList.add('bg-emerald-950/60', 'border-emerald-800', 'text-emerald-300');
-      } else {
-        box.classList.add('bg-neutral-900', 'border-neutral-800', 'text-neutral-300');
-      }
-
-      box.innerHTML = msg;
-    }
-
-    async function triggerWorkflow() {
-      const cfg = loadConfig();
-      if (!cfg.token) {
-        toggleConfigModal();
-        showToast('Please insert your GitHub Personal Access Token first.', 'error');
-        return;
-      }
-
-      const btn = document.getElementById('btnDispatch');
-      const btnLabel = document.getElementById('btnLabel');
-      const btnIcon = document.getElementById('btnIcon');
-
-      btn.disabled = true;
-      btn.classList.add('opacity-70', 'cursor-not-allowed');
-      btnLabel.innerText = 'Transmitting to Cloud...';
-      btnIcon.classList.add('animate-spin');
-
-      // Prepare payload
-      const payload = {
-        ref: 'main',
-        inputs: {}
-      };
-
-      if (activeMode === 'custom') {
-        const customTopic = document.getElementById('inputTopic').value.trim();
-        const customNotes = document.getElementById('inputNotes').value.trim();
-        const customImage = document.getElementById('inputImageUrl').value.trim();
-        if (customTopic) payload.inputs.topic = customTopic;
-        if (customNotes) payload.inputs.notes = customNotes;
-        if (customImage) payload.inputs.image_url = customImage;
-      }
-
-      try {
-        const url = `https://api.github.com/repos/${cfg.owner}/${cfg.repo}/actions/workflows/${cfg.workflow}/dispatches`;
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: {
-            'Accept': 'application/vnd.github.v3+json',
-            'Authorization': `token ${cfg.token}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(payload)
-        });
-
-        if (res.status === 204) {
-          showToast(`⚡ Workflow Dispatched! Runner is now generating the high-res card and broadcasting to Telegram.`, 'success');
-          recordHistory(activeMode === 'custom' ? (document.getElementById('inputTopic').value.trim() || 'Custom Angle') : 'Full Autonomous Brief');
-        } else {
-          const errData = await res.json().catch(() => ({}));
-          showToast(`Failed [HTTP ${res.status}]: ${errData.message || 'Check token permissions.'}`, 'error');
-        }
-      } catch (err) {
-        showToast(`Network Error: ${err.message}`, 'error');
-      } finally {
-        btn.disabled = false;
-        btn.classList.remove('opacity-70', 'cursor-not-allowed');
-        btnLabel.innerText = 'Broadcast Dispatch Now';
-        btnIcon.classList.remove('animate-spin');
-      }
-    }
-
-    function recordHistory(title) {
-      const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      const history = JSON.parse(localStorage.getItem('cultynex_history') || '[]');
-      history.unshift({ title, time: now });
-      if (history.length > 5) history.pop();
-      localStorage.setItem('cultynex_history', JSON.stringify(history));
-      renderHistory();
-    }
-
-    function renderHistory() {
-      const list = document.getElementById('historyList');
-      const history = JSON.parse(localStorage.getItem('cultynex_history') || '[]');
-      if (!history.length) {
-        list.innerHTML = `<div class="p-2.5 rounded-lg bg-neutral-900/50 border border-neutral-800/80 text-[11px] text-neutral-500">No dispatches triggered yet from this device.</div>`;
-        return;
-      }
-      list.innerHTML = history.map(item => `
-        <div class="flex items-center justify-between p-2.5 rounded-lg bg-neutral-900/70 border border-neutral-800 text-[11px]">
-          <span class="text-neutral-200 truncate pr-2">${item.title}</span>
-          <span class="text-accent-red font-semibold shrink-0">${item.time}</span>
+      <!-- Commuter Radar -->
+      <div class="widget">
+        <div class="widget-head">
+          <span class="widget-title">COMMUTER RADAR (DELHI-NCR)</span>
+          <span class="status-tag">● All Clear</span>
         </div>
-      `).join('');
-    }
+        <div class="transit-item">
+          <span class="transit-name">Yellow Line (Huda – Samaypur)</span>
+          <span class="transit-val">2–3 min frequency</span>
+        </div>
+        <div class="transit-item">
+          <span class="transit-name">Blue Line (Dwarka – Noida/Vaishali)</span>
+          <span class="transit-val">Normal operations</span>
+        </div>
+        <div class="transit-item">
+          <span class="transit-name">Namo Bharat RRTS (Duhai – Meerut)</span>
+          <span class="transit-val">On Schedule</span>
+        </div>
+      </div>
 
-    function clearHistory() {
-      localStorage.removeItem('cultynex_history');
-      renderHistory();
-    }
+      <!-- Word of the Move -->
+      <div class="word-card">
+        <div class="word-meta">WORD ON THE MOVE</div>
+        <div class="word-title">Equanimity</div>
+        <div class="word-meaning">[संयम / मानसिक स्थिरता]</div>
+        <p class="word-quote">“Maintaining equanimity during Rajiv Chowk transfers is the true hallmark of a seasoned commuter.”</p>
+      </div>
 
-    // Initialize on load
-    window.onload = function() {
-      checkConnection();
-      renderHistory();
-    };
-  </script>
+    </aside>
+
+  </div>
+
 </body>
 </html>
