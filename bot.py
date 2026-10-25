@@ -17,13 +17,13 @@ CHAT_ID = os.getenv("TELEGRAM_CHANNEL_ID")
 
 genai.configure(api_key=GEMINI_KEY)
 
-# High-Quota priority fallback list to avoid 429 quota exhaustion
+# Active models with 1500 Requests/Day Free Quota
 FALLBACK_MODELS = [
-    "models/gemini-2.5-flash",
-    "models/gemini-1.5-flash",
-    "models/gemini-3.8-flash",
-    "models/gemini-2.5-pro",
-    "models/gemini-1.5-pro"
+    "gemini-2.5-flash",
+    "gemini-1.5-flash",
+    "gemini-1.5-flash-8b",
+    "gemini-2.5-flash-lite",
+    "gemini-3.8-flash"
 ]
 
 # 2. Tech Intelligence Tracks
@@ -68,18 +68,21 @@ LEAD_MAGNETS = [
 ]
 
 def generate_with_fallback(prompt):
-    """Executes prompt against high-quota Gemini models sequentially to bypass 429 quota exhaustion."""
+    """Tries active high-quota models sequentially to prevent 429 quota exhaustion."""
+    last_err = None
     for model_name in FALLBACK_MODELS:
         try:
             print(f"Attempting generation with: {model_name}")
             model = genai.GenerativeModel(model_name)
             response = model.generate_content(prompt)
             if response and response.text:
+                print(f"Success with {model_name}")
                 return response.text.strip()
         except Exception as e:
-            print(f"Model {model_name} quota/error: {e}. Switching to next candidate...")
+            last_err = e
+            print(f"Failed {model_name}: {e}. Switching to next candidate...")
             continue
-    raise RuntimeError("All configured Gemini models failed or hit quota limits.")
+    raise RuntimeError(f"All configured Gemini models failed. Last error: {last_err}")
 
 def fetch_tech_dispatch():
     """Generates structured payload for Telegram post, quiz, and metadata."""
