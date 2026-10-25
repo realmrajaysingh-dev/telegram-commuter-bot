@@ -3,154 +3,335 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CULTYNEX DAILY | Terminal & Media Network</title>
+  
+  <!-- SEO & Meta Tags -->
+  <title>CULTYNEX TERMINAL | Frontier Silicon & Autonomous Intelligence</title>
+  <meta name="description" content="Real-time editorial intelligence on sub-2nm chipsets, sovereign AI compute, and macro financial infrastructure.">
+  <meta name="keywords" content="AI hardware, semiconductor news, GPU clusters, Cultynex Daily, tech macro dispatch">
+  <meta property="og:title" content="CULTYNEX TERMINAL | Frontier Silicon Dispatch">
+  <meta property="og:description" content="Next-gen sovereign AI compute and hardware architecture intelligence.">
+  <meta property="og:type" content="website">
+
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;0,6..72,700;1,6..72,400&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;800&family=Space+Grotesk:wght@600;700;800&display=swap');
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background: #fafafa; color: #111; font-family: 'Inter', sans-serif; line-height: 1.5; }
+    body {
+      background: #06070a;
+      color: #e4e7eb;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      min-height: 100vh;
+      overflow-x: hidden;
+      background-image: 
+        radial-gradient(circle at 15% 10%, rgba(230, 57, 70, 0.08) 0%, transparent 40%),
+        radial-gradient(circle at 85% 85%, rgba(0, 150, 255, 0.06) 0%, transparent 45%);
+    }
 
-    .top-ticker { background: #0b0c10; color: #888; font-family: 'JetBrains Mono', monospace; font-size: 11px; padding: 8px 30px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #222; }
-    .pulse-dot { display: inline-block; width: 6px; height: 6px; background: #e63946; border-radius: 50%; margin-right: 6px; }
-    .ticker-left { color: #eee; }
-    .ticker-right span { margin-left: 16px; color: #ccc; }
-    .num-neg { color: #e63946; }
+    /* Top Live Ticker */
+    .top-strip {
+      background: rgba(10, 11, 16, 0.9);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+      padding: 9px 30px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+    }
+    .pulse-wrap { display: flex; align-items: center; gap: 8px; color: #9499ab; }
+    .pulse-dot { width: 7px; height: 7px; background: #00ff88; border-radius: 50%; box-shadow: 0 0 10px #00ff88; animation: blink 2s infinite; }
+    @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+    .metrics-bar { display: flex; gap: 20px; }
+    .metric-chip { color: #8e94a5; }
+    .metric-chip b { color: #fff; }
+    .val-down { color: #e63946; }
+    .val-up { color: #00ff88; }
 
-    header { background: #fff; border-bottom: 1px solid #eaeaea; padding: 18px 40px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; }
-    .brand-wrap { display: flex; align-items: center; gap: 10px; text-decoration: none; color: inherit; }
-    .brand-mark { background: #e63946; color: #fff; font-weight: 900; font-size: 13px; padding: 4px 8px; border-radius: 3px; letter-spacing: 1px; }
-    .brand-name { font-weight: 800; font-size: 20px; letter-spacing: -0.5px; }
-    .nav-links { display: flex; gap: 24px; list-style: none; font-size: 14px; font-weight: 600; color: #555; }
-    .nav-links a { text-decoration: none; color: inherit; }
-    .nav-links a.active { color: #111; border-bottom: 2px solid #111; padding-bottom: 4px; }
-    .join-tg-btn { background: #0088cc; color: #fff; padding: 10px 18px; border-radius: 20px; font-size: 13px; font-weight: 700; text-decoration: none; display: flex; align-items: center; gap: 8px; }
+    /* Navigation */
+    header {
+      padding: 20px 40px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      position: sticky;
+      top: 0;
+      backdrop-filter: blur(20px);
+      background: rgba(6, 7, 10, 0.75);
+      z-index: 99;
+    }
+    .logo-box { display: flex; align-items: center; gap: 12px; text-decoration: none; }
+    .brand-tag {
+      background: linear-gradient(135deg, #e63946, #b01726);
+      color: #fff;
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 2px;
+      padding: 5px 10px;
+      border-radius: 5px;
+      box-shadow: 0 4px 15px rgba(230, 57, 70, 0.4);
+    }
+    .logo-text { font-family: 'Space Grotesk', sans-serif; font-size: 22px; font-weight: 800; color: #fff; letter-spacing: -0.5px; }
+    .nav-links { display: flex; gap: 28px; list-style: none; font-size: 13px; font-weight: 600; font-family: 'JetBrains Mono', monospace; }
+    .nav-links a { color: #7f869a; text-decoration: none; transition: 0.2s; }
+    .nav-links a:hover, .nav-links a.active { color: #fff; text-shadow: 0 0 10px rgba(255,255,255,0.3); }
+    
+    .tg-cta-btn {
+      background: linear-gradient(135deg, #0088cc, #005f8f);
+      color: #fff;
+      padding: 10px 20px;
+      border-radius: 30px;
+      font-size: 13px;
+      font-weight: 700;
+      text-decoration: none;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      box-shadow: 0 4px 20px rgba(0, 136, 204, 0.35);
+      border: 1px solid rgba(255,255,255,0.1);
+      transition: 0.2s;
+    }
+    .tg-cta-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 25px rgba(0, 136, 204, 0.5); }
 
-    .container { max-width: 1200px; margin: 30px auto; padding: 0 20px; display: grid; grid-template-columns: 1fr 340px; gap: 40px; }
+    /* Layout */
+    .terminal-grid {
+      max-width: 1360px;
+      margin: 35px auto;
+      padding: 0 25px;
+      display: grid;
+      grid-template-columns: 1fr 380px;
+      gap: 30px;
+    }
 
-    .hero-thumb { width: 100%; height: 420px; border-radius: 8px; overflow: hidden; background: #000; margin-bottom: 20px; }
-    .hero-thumb img { width: 100%; height: 100%; object-fit: cover; }
-    .badge-wrap { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; }
-    .badge-pill { background: #e63946; color: #fff; font-size: 10px; font-weight: 800; padding: 3px 8px; border-radius: 2px; letter-spacing: 1px; text-transform: uppercase; }
-    .read-meta { font-size: 12px; color: #777; font-weight: 500; }
-    .lead-headline { font-family: 'Newsreader', Georgia, serif; font-size: 38px; line-height: 1.18; font-weight: 700; margin-bottom: 16px; color: #050505; }
-    .lead-summary { font-size: 16px; color: #444; line-height: 1.6; margin-bottom: 24px; }
+    /* Main Featured Card */
+    .hero-card {
+      background: rgba(14, 16, 22, 0.6);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 20px;
+      padding: 32px;
+      backdrop-filter: blur(16px);
+      box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+    }
+    .thumb-wrap {
+      width: 100%;
+      height: 440px;
+      border-radius: 14px;
+      overflow: hidden;
+      position: relative;
+      border: 1px solid rgba(255,255,255,0.1);
+      margin-bottom: 24px;
+    }
+    .thumb-wrap img { width: 100%; height: 100%; object-fit: cover; filter: brightness(0.9) contrast(1.1); }
+    .thumb-overlay {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(180deg, transparent 60%, rgba(6,7,10,0.85) 100%);
+    }
 
-    .analysis-box { background: #f3f5f8; border-left: 3px solid #111; padding: 20px; border-radius: 0 6px 6px 0; margin-bottom: 24px; }
-    .analysis-box h4 { font-size: 12px; text-transform: uppercase; font-family: 'JetBrains Mono', monospace; color: #555; margin-bottom: 10px; }
-    .analysis-box ul { list-style: none; display: flex; flex-direction: column; gap: 10px; }
-    .analysis-box li { font-size: 14px; color: #222; }
+    .badge-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+    .pill-red { background: rgba(230, 57, 70, 0.15); color: #ff5263; border: 1px solid #e63946; font-size: 11px; font-weight: 800; font-family: 'JetBrains Mono', monospace; padding: 4px 10px; border-radius: 4px; }
+    .meta-mono { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #6f768b; }
 
-    .sidebar { display: flex; flex-direction: column; gap: 24px; }
-    .widget { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 20px; }
-    .widget-head { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #f0f0f0; padding-bottom: 12px; margin-bottom: 14px; }
-    .widget-title { font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: #111; }
-    .status-tag { font-size: 11px; font-weight: 700; color: #2ecc71; }
-    .transit-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px dashed #f0f0f0; font-size: 13px; }
-    .transit-name { font-weight: 600; color: #333; }
-    .transit-val { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #555; }
+    .headline-main {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 40px;
+      line-height: 1.15;
+      font-weight: 800;
+      letter-spacing: -1px;
+      color: #fff;
+      margin-bottom: 20px;
+    }
+    .body-copy { font-size: 16px; color: #a4adc3; line-height: 1.65; margin-bottom: 28px; }
 
-    .word-card { background: #0c0d12; color: #fff; border-radius: 10px; padding: 20px; border: 1px solid #222; }
-    .word-meta { font-size: 10px; font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
-    .word-title { font-size: 20px; font-weight: 700; font-family: 'Newsreader', serif; margin-bottom: 4px; }
-    .word-meaning { font-size: 12px; color: #999; margin-bottom: 12px; }
-    .word-quote { font-size: 13px; color: #ddd; font-style: italic; line-height: 1.4; border-left: 2px solid #e63946; padding-left: 10px; }
+    /* Deep Intel Matrix Box */
+    .intel-matrix {
+      background: rgba(8, 9, 13, 0.8);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-left: 3px solid #00ff88;
+      border-radius: 12px;
+      padding: 22px;
+      margin-bottom: 28px;
+    }
+    .intel-title { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #00ff88; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 12px; }
+    .intel-list { list-style: none; display: flex; flex-direction: column; gap: 12px; }
+    .intel-list li { font-size: 14px; color: #cbd3e8; line-height: 1.5; }
+    .intel-list li strong { color: #fff; }
 
-    @media (max-width: 860px) {
-      .container { grid-template-columns: 1fr; }
-      .lead-headline { font-size: 28px; }
-      .hero-thumb { height: 260px; }
+    /* Bottom Action Bar */
+    .story-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-top: 1px solid rgba(255,255,255,0.06);
+      padding-top: 20px;
+    }
+    .author-stamp { font-size: 13px; color: #767d94; }
+    .share-link {
+      color: #0088cc;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      font-weight: 700;
+      text-decoration: none;
+      transition: 0.2s;
+    }
+    .share-link:hover { text-shadow: 0 0 10px rgba(0,136,204,0.6); }
+
+    /* Sidebar Panels */
+    .sidebar-panel { display: flex; flex-direction: column; gap: 24px; }
+    
+    .cyber-widget {
+      background: rgba(14, 16, 22, 0.6);
+      border: 1px solid rgba(255, 255, 255, 0.07);
+      border-radius: 16px;
+      padding: 24px;
+      backdrop-filter: blur(14px);
+    }
+    .widget-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 12px; }
+    .widget-h { font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 700; letter-spacing: 1px; color: #fff; text-transform: uppercase; }
+    .status-active { color: #00ff88; font-family: 'JetBrains Mono', monospace; font-size: 11px; }
+
+    .transit-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px dashed rgba(255,255,255,0.05); font-size: 13px; }
+    .t-route { color: #cbd1e3; font-weight: 500; }
+    .t-status { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #8e95ab; }
+
+    /* Lead Magnet / Community Box */
+    .community-box {
+      background: linear-gradient(145deg, rgba(230, 57, 70, 0.12), rgba(15, 17, 24, 0.8));
+      border: 1px solid rgba(230, 57, 70, 0.3);
+      border-radius: 16px;
+      padding: 24px;
+    }
+    .box-badge { font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 800; color: #e63946; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 8px; }
+    .box-title { font-size: 18px; font-weight: 800; color: #fff; margin-bottom: 8px; line-height: 1.3; }
+    .box-sub { font-size: 13px; color: #9da4be; margin-bottom: 18px; line-height: 1.45; }
+    .btn-action-hub {
+      display: block;
+      text-align: center;
+      background: #e63946;
+      color: #fff;
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+      padding: 12px 16px;
+      border-radius: 8px;
+      text-decoration: none;
+      box-shadow: 0 4px 20px rgba(230, 57, 70, 0.4);
+      transition: 0.2s;
+    }
+    .btn-action-hub:hover { opacity: 0.9; transform: translateY(-1px); }
+
+    @media (max-width: 900px) {
+      .terminal-grid { grid-template-columns: 1fr; }
+      .headline-main { font-size: 28px; }
+      .thumb-wrap { height: 260px; }
     }
   </style>
 </head>
 <body>
 
-  <div class="top-ticker">
-    <div class="ticker-left">
-      <span class="pulse-dot"></span>LIVE PULSE: Delhi Transit Operational • Silicon Intelligence Online
+  <!-- Top Metrics Ticker -->
+  <div class="top-strip">
+    <div class="pulse-wrap">
+      <span class="pulse-dot"></span>
+      <span>CULTYNEX TERMINAL CORE • V3.8 ACTIVE</span>
     </div>
-    <div class="ticker-right">
-      <span>NIFTY: <b class="num-neg">22,600 (-0.39%)</b></span>
-      <span>USD/INR: <b>₹94.95</b></span>
-      <span>BTC: <b>$80,670</b></span>
+    <div class="metrics-bar">
+      <span class="metric-chip">DELHI METRO: <b class="val-up">NORMAL</b></span>
+      <span class="metric-chip">NIFTY: <b class="val-down">22,600 (-0.39%)</b></span>
+      <span class="metric-chip">SILICON INDEX: <b class="val-up">+3.4%</b></span>
     </div>
   </div>
 
+  <!-- Header -->
   <header>
-    <a href="#" class="brand-wrap">
-      <span class="brand-mark">CULTYNEX</span>
-      <span class="brand-name">DAILY</span>
+    <a href="#" class="logo-box">
+      <span class="brand-tag">TERMINAL</span>
+      <span class="logo-text">CULTYNEX DAILY</span>
     </a>
     <ul class="nav-links">
-      <li><a href="#" class="active">Top Briefs</a></li>
-      <li><a href="#">Markets & Assets</a></li>
-      <li><a href="#">Company List</a></li>
-      <li><a href="#">Box Office</a></li>
-      <li><a href="#">Commuter Radar</a></li>
+      <li><a href="#" class="active">// SILICON_RADAR</a></li>
+      <li><a href="#">// MACRO_MARKETS</a></li>
+      <li><a href="#">// TRANSIT_PULSE</a></li>
+      <li><a href="#">// ARCHIVES</a></li>
     </ul>
-    <a href="https://t.me/cultynex_daily" target="_blank" class="join-tg-btn">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.52 2.77-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .36z"/></svg>
-      Join Telegram
+    <a href="https://t.me/cultynex_daily" target="_blank" class="tg-cta-btn">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.52 2.77-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .36z"/></svg>
+      Join Live Telegram
     </a>
   </header>
 
-  <div class="container">
-    <main>
-      <div class="hero-thumb">
-        <img src="https://images.unsplash.com/photo-1550751827-4bd374c3f58b?auto=format&fit=crop&w=1200&q=85" alt="Hardware Infrastructure" />
+  <!-- Grid -->
+  <div class="terminal-grid">
+    
+    <!-- Main Article -->
+    <main class="hero-card">
+      <div class="thumb-wrap">
+        <img src="https://images.unsplash.com/photo-1550751827-4bd374c3f58b?auto=format&fit=crop&w=1400&q=85" alt="Hardware Infrastructure" />
+        <div class="thumb-overlay"></div>
       </div>
 
-      <div class="badge-wrap">
-        <span class="badge-pill">BREAKING COVERAGE</span>
-        <span class="read-meta">• 3 MIN READ • UPDATED LIVE</span>
+      <div class="badge-bar">
+        <span class="pill-red">CRITICAL HARDWARE INTEL</span>
+        <span class="meta-mono">// 2 MIN READ • OCT 2026</span>
       </div>
 
-      <h1 class="lead-headline">India AI Mission: ₹10,372 Cr GPU Compute Tender Receives 18 Bids from Global & Local Cloud Giants</h1>
+      <h1 class="headline-main">India AI Mission: ₹10,372 Cr GPU Compute Tender Receives 18 Bids From Global & Local Cloud Giants</h1>
 
-      <p class="lead-summary">
+      <p class="body-copy">
         The Ministry of Electronics and IT (MeitY) has officially closed the qualification round for its landmark compute infrastructure tender, clearing the runway for 10,000+ top-tier GPUs to be deployed within Indian soil.
       </p>
 
-      <div class="analysis-box">
-        <h4>WHY IT MATTERS TO YOU</h4>
-        <ul>
-          <li><strong>• Cloud Cost Reduction:</strong> Indian startups and AI labs will get access to subsidized compute power at roughly 40–50% below international rates.</li>
-          <li><strong>• Sovereign AI:</strong> Reduces heavy dependency on overseas cloud clusters for Indian languages and local model training.</li>
+      <div class="intel-matrix">
+        <div class="intel-title">STRATEGIC VECTORS & BREAKDOWN</div>
+        <ul class="intel-list">
+          <li><strong>• Cloud Cost Collapse:</strong> Indian startups and AI labs gain subsidized compute access at 40–50% below standard international hyperscaler tariffs.</li>
+          <li><strong>• Sovereign AI Security:</strong> Removes dependency on overseas clusters for local language training and defense-grade models.</li>
+          <li><strong>• Multi-Tenancy Architecture:</strong> High-bandwidth interconnects dedicated to sovereign foundation models.</li>
         </ul>
       </div>
 
-      <div style="font-size:14px; color:#666; display:flex; justify-content:space-between; align-items:center; border-top:1px solid #eee; padding-top:16px;">
-        <span>By Cultynex Editorial Desk</span>
-        <a href="https://t.me/cultynex_daily" style="color:#0088cc; font-weight:600; text-decoration:none;">Discuss in Telegram Channel &rarr;</a>
+      <div class="story-footer">
+        <span class="author-stamp">Published by Cultynex Strategy Terminal</span>
+        <a href="https://t.me/cultynex_daily" class="share-link">Discuss in Telegram Live Channel &rarr;</a>
       </div>
     </main>
 
-    <aside class="sidebar">
-      <div class="widget">
-        <div class="widget-head">
-          <span class="widget-title">COMMUTER RADAR (DELHI-NCR)</span>
-          <span class="status-tag">● All Clear</span>
+    <!-- Sidebar -->
+    <aside class="sidebar-panel">
+      
+      <!-- Lead Magnet Offer -->
+      <div class="community-box">
+        <div class="box-badge">FREE DEVELOPER ASSET</div>
+        <div class="box-title">2026 AI Silicon & Hardware Master Roadmap</div>
+        <div class="box-sub">Foundry economics, chiplet architectures, and GPU cluster benchmarks in one master PDF.</div>
+        <a href="https://t.me/cultynex_daily" class="btn-action-hub">DOWNLOAD FREE ROADMAP</a>
+      </div>
+
+      <!-- Commuter Radar -->
+      <div class="cyber-widget">
+        <div class="widget-top">
+          <span class="widget-h">DELHI-NCR TRANSIT RADAR</span>
+          <span class="status-active">● OPERATIONAL</span>
         </div>
-        <div class="transit-item">
-          <span class="transit-name">Yellow Line (Huda – Samaypur)</span>
-          <span class="transit-val">2–3 min frequency</span>
+        <div class="transit-row">
+          <span class="t-route">Yellow Line (Huda – Samaypur)</span>
+          <span class="t-status">2–3 min headways</span>
         </div>
-        <div class="transit-item">
-          <span class="transit-name">Blue Line (Dwarka – Noida/Vaishali)</span>
-          <span class="transit-val">Normal operations</span>
+        <div class="transit-row">
+          <span class="t-route">Blue Line (Dwarka – Noida/Vaishali)</span>
+          <span class="t-status">Normal operations</span>
         </div>
-        <div class="transit-item">
-          <span class="transit-name">Namo Bharat RRTS (Duhai – Meerut)</span>
-          <span class="transit-val">On Schedule</span>
+        <div class="transit-row">
+          <span class="t-route">Namo Bharat RRTS (Duhai – Meerut)</span>
+          <span class="t-status">On Schedule</span>
         </div>
       </div>
 
-      <div class="word-card">
-        <div class="word-meta">WORD ON THE MOVE</div>
-        <div class="word-title">Equanimity</div>
-        <div class="word-meaning">[संयम / मानसिक स्थिरता]</div>
-        <p class="word-quote">“Maintaining equanimity during Rajiv Chowk transfers is the true hallmark of a seasoned commuter.”</p>
-      </div>
     </aside>
+
   </div>
 
 </body>
