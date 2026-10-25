@@ -121,7 +121,7 @@ def send_telegram(data):
             "options": data["options"][:4],
             "type": "quiz",
             "correct_option_id": int(data.get("correct_id", 0)),
-            "is_anonymous": False
+            "is_anonymous": True
         }
     )
     print("Telegram SendPoll:", r_poll.status_code, r_poll.text)
