@@ -1,36 +1,33 @@
-name: Telegram & Instagram Daily Publisher
+name: Telegram Daily Editorial Publisher
 
 on:
   schedule:
-    - cron: '30 2 * * *'   # Morning 08:00 AM IST
-    - cron: '30 6 * * *'   # Midday 12:00 PM IST
-    - cron: '30 12 * * *'  # Evening 06:00 PM IST
-  workflow_dispatch:
+    # Runs 5 times daily (UTC timings: 2:30 AM, 5:30 AM, 9:30 AM, 12:30 PM, 3:30 PM) -> IST peak commute hours
+    - cron: '30 2,5,9,12,15 * * *'
+  workflow_dispatch: # Allows manual 1-click run anytime
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.11'
 
-      - name: Install Dependencies
-        run: pip install requests google-genai pillow
+      - name: Install Dependencies & Headless Browser
+        run: |
+          python -m pip install --upgrade pip
+          pip install google-generativeai requests playwright
+          playwright install --with-deps chromium
 
-      - name: Run Pipeline
+      - name: Run Editorial Dispatcher
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
-        run: python bot.py
-
-      - name: Save Instagram Post Image
-        uses: actions/upload-artifact@v4
-        with:
-          name: instagram-post-today
-          path: cultynex_instagram_post.png
+        run: |
+          python bot.py
