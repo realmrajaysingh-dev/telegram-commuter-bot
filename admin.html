@@ -2,584 +2,1235 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>CULTYNEX // Full-Stack Agent Matrix</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>CULTYNEX ARCHITECT // Next-Gen Autonomous Node Matrix</title>
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            mono: ['"JetBrains Mono"', 'monospace'],
+            sans: ['"Plus Jakarta Sans"', 'system-ui', 'sans-serif']
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@500;600;700;800;900&display=swap" rel="stylesheet">
+
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700;800&family=Plus+Jakarta+Sans:wght@500;700;800&display=swap');
-
-    :root {
-      --bg: #050608;
-      --grid: rgba(255, 255, 255, 0.04);
-      --node-bg: #0c0e14;
-      --node-border: #1b202e;
-      --accent: #00ff88;
-      --danger: #ff3366;
-      --warning: #ffaa00;
-      --cyan: #00e5ff;
-      --purple: #b5179e;
-      --text-main: #f0f3f8;
-      --text-sub: #78829d;
+    /* THEME 1: ONYX MATRIX (DEFAULT) */
+    :root, [data-theme="onyx"] {
+      --bg-color: #050608;
+      --panel-bg: rgba(11, 13, 19, 0.92);
+      --panel-border: rgba(255, 255, 255, 0.08);
+      --card-bg: #10141D;
+      --accent: #00FF88;
+      --accent-glow: rgba(0, 255, 136, 0.4);
+      --secondary: #00F0FF;
+      --danger: #FF0055;
+      --warning: #FFB703;
+      --grid-dot: rgba(255, 255, 255, 0.06);
+      --chassis-border: rgba(0, 255, 136, 0.35);
+      --chassis-glow: rgba(0, 255, 136, 0.15);
+      --cable-idle: rgba(255, 255, 255, 0.16);
+      --cable-active: #00FF88;
     }
 
-    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-    body, html { width: 100%; height: 100%; overflow: hidden; background: var(--bg); font-family: 'Plus Jakarta Sans', sans-serif; color: var(--text-main); }
+    /* THEME 2: TOKYO SYNTHWAVE */
+    [data-theme="synthwave"] {
+      --bg-color: #0b0314;
+      --panel-bg: rgba(24, 8, 38, 0.94);
+      --panel-border: rgba(255, 0, 128, 0.25);
+      --card-bg: #1e0b30;
+      --accent: #ff007f;
+      --accent-glow: rgba(255, 0, 127, 0.5);
+      --secondary: #00f0ff;
+      --danger: #ff0055;
+      --warning: #ffb703;
+      --grid-dot: rgba(255, 0, 128, 0.12);
+      --chassis-border: rgba(255, 0, 127, 0.5);
+      --chassis-glow: rgba(255, 0, 127, 0.2);
+      --cable-idle: rgba(255, 0, 128, 0.22);
+      --cable-active: #ff007f;
+    }
 
-    #viewport {
-      width: 100vw;
-      height: 100vh;
-      position: relative;
+    /* THEME 3: TITANIUM FROST */
+    [data-theme="frost"] {
+      --bg-color: #060a12;
+      --panel-bg: rgba(14, 23, 38, 0.88);
+      --panel-border: rgba(0, 240, 255, 0.2);
+      --card-bg: rgba(20, 32, 53, 0.75);
+      --accent: #00e5ff;
+      --accent-glow: rgba(0, 229, 255, 0.45);
+      --secondary: #3b82f6;
+      --danger: #f43f5e;
+      --warning: #f59e0b;
+      --grid-dot: rgba(0, 229, 255, 0.09);
+      --chassis-border: rgba(0, 229, 255, 0.45);
+      --chassis-glow: rgba(0, 229, 255, 0.2);
+      --cable-idle: rgba(0, 229, 255, 0.2);
+      --cable-active: #00e5ff;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      background-color: var(--bg-color);
+      color: #E2E8F0;
+      user-select: none;
       overflow: hidden;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      transition: background-color 0.4s ease;
+    }
+
+    /* Interactive Dot & Cross Grid Canvas */
+    .grid-matrix {
+      background-size: 28px 28px;
       background-image: 
-        radial-gradient(circle at 50% 50%, rgba(0, 255, 136, 0.03) 0%, transparent 80%),
-        linear-gradient(var(--grid) 1px, transparent 1px),
-        linear-gradient(90deg, var(--grid) 1px, transparent 1px);
-      background-size: 100% 100%, 32px 32px, 32px 32px;
-      cursor: grab;
+        radial-gradient(circle, var(--grid-dot) 1.2px, transparent 1.2px);
     }
-    #viewport:active { cursor: grabbing; }
 
-    #wires-svg {
+    /* Animated 3D Cyber Chassis Frame Mode */
+    .chassis-case-active {
+      box-shadow: inset 0 0 60px var(--chassis-glow), 0 0 35px var(--chassis-glow);
+      border: 2px solid var(--chassis-border);
+      position: relative;
+    }
+    .chassis-case-active::before {
+      content: "";
       position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
+      inset: 0;
       pointer-events: none;
-      z-index: 1;
+      background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.03), rgba(0, 255, 0, 0.01), rgba(0, 0, 255, 0.03));
+      background-size: 100% 3px, 6px 100%;
+      z-index: 45;
+      opacity: 0.6;
     }
 
-    .cable {
-      fill: none;
-      stroke: #252d42;
-      stroke-width: 3;
-      stroke-linecap: round;
-      transition: stroke 0.3s ease, stroke-width 0.3s ease;
+    /* Corner Hologram Brackets */
+    .chassis-corner {
+      position: absolute;
+      width: 22px;
+      height: 22px;
+      border-color: var(--accent);
+      pointer-events: none;
+      z-index: 50;
+      filter: drop-shadow(0 0 6px var(--accent));
+      transition: all 0.3s;
     }
-    .cable.active {
-      stroke: var(--accent);
+
+    /* SVG Connecting Cables */
+    .cable-path {
+      fill: none;
+      stroke-linecap: round;
+      transition: stroke 0.3s ease, stroke-width 0.2s ease;
+    }
+    .cable-idle {
+      stroke: var(--cable-idle);
+      stroke-width: 2.2;
+      stroke-dasharray: 5 4;
+    }
+    .cable-active {
+      stroke: var(--cable-active);
       stroke-width: 3.5;
       stroke-dasharray: 8 6;
-      animation: cableFlow 1s linear infinite;
+      animation: cableDash 1s linear infinite;
       filter: drop-shadow(0 0 8px var(--accent));
     }
-    .cable.error {
+    .cable-error {
       stroke: var(--danger);
       stroke-width: 4;
       stroke-dasharray: 6 6;
-      animation: cableFlow 0.4s linear infinite;
+      animation: cableDash 0.35s linear infinite;
       filter: drop-shadow(0 0 10px var(--danger));
     }
-    @keyframes cableFlow {
+    @keyframes cableDash {
       from { stroke-dashoffset: 28; }
       to { stroke-dashoffset: 0; }
     }
 
-    .hud-header {
-      position: absolute;
-      top: 16px;
-      left: 20px;
-      right: 20px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      z-index: 100;
-      pointer-events: none;
-    }
-    .brand-cluster {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      background: rgba(12, 14, 20, 0.85);
-      backdrop-filter: blur(12px);
-      border: 1px solid var(--node-border);
-      padding: 8px 16px;
-      border-radius: 12px;
-      pointer-events: auto;
-    }
-    .badge {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 10px;
-      font-weight: 800;
-      background: #e63946;
-      color: #fff;
-      padding: 3px 8px;
-      border-radius: 4px;
-      letter-spacing: 1px;
-    }
-    .brand-title {
-      font-size: 14px;
-      font-weight: 800;
-      letter-spacing: -0.3px;
-    }
-    .hud-actions {
-      display: flex;
-      gap: 10px;
-      pointer-events: auto;
-    }
-    .btn {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 12px;
-      font-weight: 700;
-      padding: 10px 16px;
-      border-radius: 10px;
-      border: 1px solid var(--node-border);
-      background: rgba(12, 14, 20, 0.9);
-      color: var(--text-main);
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      transition: all 0.2s;
-    }
-    .btn:hover { border-color: #3b4562; transform: translateY(-1px); }
-    .btn-primary { background: var(--accent); color: #041209; border-color: var(--accent); font-weight: 800; }
-    .btn-primary:hover { box-shadow: 0 0 20px rgba(0, 255, 136, 0.4); }
-    .btn-danger { background: rgba(255, 51, 102, 0.15); border-color: var(--danger); color: var(--danger); }
-
-    .node {
-      position: absolute;
-      width: 250px;
-      background: var(--node-bg);
-      border: 1px solid var(--node-border);
-      border-radius: 14px;
-      padding: 14px 16px;
-      box-shadow: 0 15px 35px rgba(0,0,0,0.6);
-      user-select: none;
-      cursor: move;
-      z-index: 10;
-      transition: border-color 0.25s, box-shadow 0.25s;
-    }
-    .node:hover { border-color: #3e4866; }
-    .node.running { border-color: var(--accent); box-shadow: 0 0 25px rgba(0, 255, 136, 0.25); }
-    .node.failed { border-color: var(--danger); box-shadow: 0 0 25px rgba(255, 51, 102, 0.35); }
-
-    .node-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-    .node-tag { font-family: 'JetBrains Mono', monospace; font-size: 9px; font-weight: 800; color: var(--text-sub); letter-spacing: 1px; }
-    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #3e4866; }
-    .status-dot.idle { background: #3e4866; }
-    .status-dot.running { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
-    .status-dot.error { background: var(--danger); box-shadow: 0 0 10px var(--danger); }
-
-    .node-name { font-size: 13px; font-weight: 700; color: #fff; margin-bottom: 4px; }
-    .node-desc { font-size: 11px; color: var(--text-sub); line-height: 1.4; margin-bottom: 10px; }
-
-    .node-meta {
-      background: #11141d;
-      border: 1px solid rgba(255, 255, 255, 0.05);
-      border-radius: 8px;
-      padding: 6px 8px;
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 9px;
-      color: #a4adc5;
-      display: flex;
-      justify-content: space-between;
+    /* Signal Pulse Electron */
+    .signal-pulse {
+      fill: var(--secondary);
+      filter: drop-shadow(0 0 10px var(--secondary));
     }
 
-    .port {
-      width: 12px;
-      height: 12px;
-      background: #1e2436;
-      border: 2px solid #5a668a;
+    /* Node Styling & Glass */
+    .node-box {
+      cursor: grab;
+      touch-action: none;
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      backdrop-filter: blur(16px);
+      box-shadow: 0 18px 45px rgba(0,0,0,0.65);
+      transition: box-shadow 0.2s, border-color 0.2s, transform 0.15s;
+    }
+    .node-box:active { cursor: grabbing; }
+    .node-box.selected {
+      border-color: var(--accent) !important;
+      box-shadow: 0 0 28px var(--accent-glow) !important;
+      transform: scale(1.01);
+    }
+    .node-box.executing {
+      border-color: var(--accent) !important;
+      box-shadow: 0 0 35px var(--accent-glow) !important;
+    }
+    .node-box.faulted {
+      border-color: var(--danger) !important;
+      box-shadow: 0 0 40px rgba(255, 0, 85, 0.5) !important;
+    }
+
+    /* Sockets */
+    .port-socket {
+      width: 13px;
+      height: 13px;
       border-radius: 50%;
-      position: absolute;
-      top: 50%;
-      transform: translateY(-50%);
+      background: var(--bg-color);
+      border: 2px solid var(--secondary);
+      transition: all 0.2s ease;
+      cursor: crosshair;
     }
-    .port-in { left: -7px; }
-    .port-out { right: -7px; }
+    .port-socket:hover {
+      transform: scale(1.5);
+      background: var(--secondary);
+      box-shadow: 0 0 12px var(--secondary);
+    }
+    .port-socket.out { border-color: var(--accent); }
+    .port-socket.out:hover { background: var(--accent); box-shadow: 0 0 12px var(--accent); }
+    .port-socket.err { border-color: var(--danger); }
+    .port-socket.err:hover { background: var(--danger); box-shadow: 0 0 12px var(--danger); }
 
-    .bottom-bar {
-      position: absolute;
-      bottom: 20px;
-      left: 20px;
-      right: 20px;
-      background: rgba(12, 14, 20, 0.95);
-      backdrop-filter: blur(14px);
-      border: 1px solid var(--node-border);
-      border-radius: 14px;
-      padding: 12px 18px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      z-index: 100;
-    }
-    .telemetry-text {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 11px;
-      color: #8c96b0;
-      display: flex;
-      align-items: center;
-      gap: 14px;
-    }
-    .telemetry-highlight { color: var(--accent); font-weight: 700; }
-
-    #deploy-modal {
-      display: none;
-      position: fixed;
-      inset: 0;
-      background: rgba(0,0,0,0.85);
-      z-index: 300;
-      justify-content: center;
-      align-items: center;
-    }
-    .modal-box {
-      width: 90%;
-      max-width: 440px;
-      background: #0f121a;
-      border: 1px solid #293145;
-      border-radius: 16px;
-      padding: 24px;
-    }
-    .input-field {
-      width: 100%;
-      background: #171b26;
-      border: 1px solid #2b334a;
-      border-radius: 10px;
-      padding: 12px 14px;
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 12px;
-      color: #fff;
-      margin-bottom: 14px;
-      outline: none;
-    }
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: var(--bg-color); }
+    ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.15); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--accent); }
   </style>
 </head>
-<body>
+<body class="w-screen h-screen relative flex flex-col font-sans" data-theme="onyx">
 
-<div id="viewport">
-  <svg id="wires-svg">
-    <path id="wire-1-2" class="cable" />
-    <path id="wire-2-3" class="cable" />
-    <path id="wire-2-4" class="cable" />
-    <path id="wire-2-7" class="cable" />
-    <path id="wire-2-8" class="cable" />
-    <path id="wire-3-5" class="cable" />
-    <path id="wire-4-5" class="cable" />
-    <path id="wire-7-5" class="cable" />
-    <path id="wire-4-9" class="cable" />
-    <path id="wire-2-6" class="cable" />
-  </svg>
+  <!-- Top Cyber Bar: Logo, Global Status, Theme Switcher & Tool Library Trigger -->
+  <header class="h-14 border-b border-white/10 bg-black/60 backdrop-blur-xl px-4 flex items-center justify-between z-40 shrink-0">
+    <div class="flex items-center space-x-3">
+      <div class="flex items-center space-x-2">
+        <span class="w-2.5 h-2.5 rounded-full bg-[var(--accent)] animate-pulse shadow-lg shadow-[var(--accent)]"></span>
+        <span class="font-extrabold text-sm sm:text-base tracking-tight font-mono text-white">
+          CULTYNEX<span class="text-xs ml-1.5 px-2 py-0.5 rounded font-bold border" style="color: var(--accent); background: rgba(0,255,136,0.08); border-color: var(--accent);">ORCHESTRATOR_V4</span>
+        </span>
+      </div>
 
-  <div class="hud-header">
-    <div class="brand-cluster">
-      <div class="badge">ORCHESTRATOR</div>
-      <div class="brand-title">CULTYNEX MULTI-AGENT MATRIX (9 NODES)</div>
+      <span class="hidden md:inline text-neutral-600 font-mono text-xs">•</span>
+      
+      <!-- Live Node & Pipeline Metric -->
+      <div class="hidden lg:flex items-center space-x-2 text-[11px] font-mono text-neutral-400">
+        <span>ACTIVE NODES:</span>
+        <span id="activeNodeCounter" class="font-bold text-white">6 LIVE</span>
+        <span class="text-neutral-600">|</span>
+        <span>TOPOLOGY:</span>
+        <span id="meshHealthLabel" class="text-[var(--accent)] font-semibold">100% HEALTHY</span>
+      </div>
     </div>
-    <div class="hud-actions">
-      <button class="btn" onclick="simulateFullWorkflow()">▶ SIMULATE FULL PIPELINE</button>
-      <button class="btn btn-primary" onclick="openDeployModal()">🚀 DEPLOY LIVE</button>
-    </div>
-  </div>
 
-  <!-- NODE 01: Trigger Scheduler -->
-  <div class="node" id="node-1" style="left: 30px; top: 120px;">
-    <div class="node-header">
-      <span class="node-tag">01 // TRIGGER</span>
-      <div class="status-dot idle" id="dot-1"></div>
-    </div>
-    <div class="node-name">Cron & Webhook Engine</div>
-    <div class="node-desc">Fires dispatch events at peak commuting transit intervals.</div>
-    <div class="node-meta"><span>SCHEDULE</span><span>0 3,11 * * *</span></div>
-    <div class="port port-out"></div>
-  </div>
+    <!-- Center Control Triggers -->
+    <div class="flex items-center space-x-2 sm:space-x-3">
+      <!-- 25+ Node Tool Drawer Trigger -->
+      <button onclick="toggleToolDrawer()" class="px-3 py-1.5 rounded-xl border border-white/15 bg-neutral-900/80 hover:bg-neutral-800 text-white font-mono text-xs font-semibold transition flex items-center gap-1.5 shadow-md">
+        <svg class="w-3.5 h-3.5 text-[var(--accent)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
+        <span>+ Add Node / Tool</span>
+      </button>
 
-  <!-- NODE 02: Gemini Brain -->
-  <div class="node" id="node-2" style="left: 330px; top: 120px;">
-    <div class="port port-in"></div>
-    <div class="node-header">
-      <span class="node-tag">02 // AI AGENT</span>
-      <div class="status-dot idle" id="dot-2"></div>
-    </div>
-    <div class="node-name">Gemini Intelligence Core</div>
-    <div class="node-desc">Discovers quota-free models, synthesizes JSON payload & full web story.</div>
-    <div class="node-meta"><span>QUOTA</span><span>1500 REQ/DAY</span></div>
-    <div class="port port-out"></div>
-  </div>
+      <!-- Flow Execution Simulator -->
+      <button onclick="simulateExecution()" id="btnSimulate" class="px-3 py-1.5 rounded-xl bg-neutral-900/90 border border-[var(--secondary)]/40 text-[var(--secondary)] hover:bg-[var(--secondary)]/15 font-mono text-xs font-bold transition flex items-center gap-1.5">
+        <svg class="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+        <span class="hidden sm:inline">Simulate Flow</span>
+      </button>
 
-  <!-- NODE 03: Playwright Graphic Card -->
-  <div class="node" id="node-3" style="left: 640px; top: 30px;">
-    <div class="port port-in"></div>
-    <div class="node-header">
-      <span class="node-tag">03 // MEDIA</span>
-      <div class="status-dot idle" id="dot-3"></div>
-    </div>
-    <div class="node-name">Playwright Visual Core</div>
-    <div class="node-desc">Snaps 1080x1350 editorial card with silicon hardware overlay.</div>
-    <div class="node-meta"><span>FORMAT</span><span>PNG 1080x1350</span></div>
-    <div class="port port-out"></div>
-  </div>
+      <!-- Error Injection Test Trigger -->
+      <button onclick="toggleErrorInjection()" id="btnInjectError" class="px-3 py-1.5 rounded-xl bg-neutral-900/90 border border-neutral-700 text-neutral-300 hover:text-white font-mono text-xs transition flex items-center gap-1.5" title="Simulate 429 quota exhaustion to trigger Auto-Healer">
+        <span class="w-2 h-2 rounded-full bg-[var(--danger)]"></span>
+        <span class="hidden sm:inline">Inject Fault</span>
+      </button>
 
-  <!-- NODE 04: HTML Web Publisher -->
-  <div class="node" id="node-4" style="left: 640px; top: 180px;">
-    <div class="port port-in"></div>
-    <div class="node-header">
-      <span class="node-tag">04 // WEB ENGINE</span>
-      <div class="status-dot idle" id="dot-4"></div>
-    </div>
-    <div class="node-name">Article HTML Publisher</div>
-    <div class="node-desc">Builds 800+ word deep-dive web page & triggers GitHub Pages CDN.</div>
-    <div class="node-meta"><span>DIR</span><span>articles/*.html</span></div>
-    <div class="port port-out"></div>
-  </div>
+      <!-- Real GitHub Dispatch Trigger Button -->
+      <button onclick="openDeployModal()" class="px-3.5 py-1.5 rounded-xl font-mono text-xs font-bold tracking-wider uppercase transition shadow-lg flex items-center gap-1.5 text-black" style="background: var(--accent); box-shadow: 0 0 15px var(--accent-glow);">
+        <svg class="w-3.5 h-3.5 fill-none stroke-current stroke-2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+        <span>Deploy Live</span>
+      </button>
 
-  <!-- NODE 07: Audio Podcast TTS (Free) -->
-  <div class="node" id="node-7" style="left: 640px; top: 330px;">
-    <div class="port port-in"></div>
-    <div class="node-header">
-      <span class="node-tag">07 // AUDIO TTS</span>
-      <div class="status-dot idle" id="dot-7"></div>
-    </div>
-    <div class="node-name">Edge-TTS Audio Podcast</div>
-    <div class="node-desc">Generates free natural AI voice brief MP3 for Telegram and web player.</div>
-    <div class="node-meta"><span>COST</span><span>100% FREE (0ms API)</span></div>
-    <div class="port port-out"></div>
-  </div>
+      <!-- Theme & Chassis Switcher Pill -->
+      <div class="flex items-center space-x-1 border border-white/10 rounded-xl p-1 bg-neutral-900/80">
+        <button onclick="setTheme('onyx')" title="Onyx Matrix (Phosphor Green)" class="theme-btn px-2 py-0.5 rounded-lg text-[10px] font-mono font-bold bg-white/15 text-white">ONYX</button>
+        <button onclick="setTheme('synthwave')" title="Tokyo Synthwave (Neon Magenta)" class="theme-btn px-2 py-0.5 rounded-lg text-[10px] font-mono text-neutral-400 hover:text-white">TOKYO</button>
+        <button onclick="setTheme('frost')" title="Titanium Frost (Cyan Glass)" class="theme-btn px-2 py-0.5 rounded-lg text-[10px] font-mono text-neutral-400 hover:text-white">FROST</button>
+      </div>
 
-  <!-- NODE 08: Auto IndexNow SEO Ping -->
-  <div class="node" id="node-8" style="left: 640px; top: 480px;">
-    <div class="port port-in"></div>
-    <div class="node-header">
-      <span class="node-tag">08 // AUTO SEO</span>
-      <div class="status-dot idle" id="dot-8"></div>
-    </div>
-    <div class="node-name">IndexNow Search Pinger</div>
-    <div class="node-desc">Notifies search engines immediately to rank new article in 15 mins.</div>
-    <div class="node-meta"><span>TARGET</span><span>IndexNow API</span></div>
-  </div>
+      <!-- Chassis Case On/Off Toggle -->
+      <button onclick="toggleChassisCase()" id="btnChassisToggle" class="p-2 rounded-xl border border-white/10 bg-neutral-900 hover:border-white/30 text-neutral-300 transition" title="Toggle 3D Cyber Chassis Frame Case">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>
+      </button>
 
-  <!-- NODE 05: Telegram Channel Broadcaster -->
-  <div class="node" id="node-5" style="left: 950px; top: 120px;">
-    <div class="port port-in"></div>
-    <div class="node-header">
-      <span class="node-tag">05 // TELEGRAM</span>
-      <div class="status-dot idle" id="dot-5"></div>
+      <!-- Chassis Preset Exporter Drawer -->
+      <button onclick="toggleExportDrawer()" class="p-2 rounded-xl border border-white/10 bg-neutral-900 hover:border-white/30 text-neutral-300 transition" title="Export Reusable Node Framework Blueprint">
+        <svg class="w-4 h-4 fill-none stroke-current stroke-2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+      </button>
     </div>
-    <div class="node-name">Telegram Broadcaster</div>
-    <div class="node-desc">Sends visual card, viral curiosity hook, poll quiz, and direct article link.</div>
-    <div class="node-meta"><span>DESTINATION</span><span>@cultynex_daily</span></div>
-  </div>
+  </header>
 
-  <!-- NODE 09: Lead Capture Flat-DB -->
-  <div class="node" id="node-9" style="left: 950px; top: 290px;">
-    <div class="port port-in"></div>
-    <div class="node-header">
-      <span class="node-tag">09 // LEAD FUNNEL</span>
-      <div class="status-dot idle" id="dot-9"></div>
-    </div>
-    <div class="node-name">Flat-File Lead Vault</div>
-    <div class="node-desc">Captures roadmap download emails into free GitHub repo CSV database.</div>
-    <div class="node-meta"><span>STORAGE</span><span>subscribers.csv</span></div>
-  </div>
-
-  <!-- NODE 06: Auto-Healer Sentry -->
-  <div class="node" id="node-6" style="left: 330px; top: 380px;">
-    <div class="port port-in"></div>
-    <div class="node-header">
-      <span class="node-tag">06 // SENTRY</span>
-      <div class="status-dot idle" id="dot-6"></div>
-    </div>
-    <div class="node-name">Self-Healing Engine</div>
-    <div class="node-desc">Inspects GitHub action exceptions and applies AST auto-patches.</div>
-    <div class="node-meta"><span>UPTIME</span><span>SELF-REPAIR ON</span></div>
-  </div>
-
-  <!-- Bottom Telemetry Status Bar -->
-  <div class="bottom-bar">
-    <div class="telemetry-text">
-      <span>TOPOLOGY: <span class="telemetry-highlight">9 NODES SYNCED</span></span>
-      <span>ACTIVE ENGINE: <span class="telemetry-highlight">GEMINI 2.5 FLASH</span></span>
-      <span>FREE AUTOMATION: <span class="telemetry-highlight">100% OPERATIONAL</span></span>
-    </div>
-    <div>
-      <a href="./" target="_blank" style="color: var(--accent); font-family: 'JetBrains Mono', monospace; font-size: 11px; text-decoration: none;">↗ OPEN TERMINAL WEB</a>
-    </div>
-  </div>
-</div>
-
-<!-- Modal for Triggering Live GitHub Run -->
-<div id="deploy-modal">
-  <div class="modal-box">
-    <h3 style="font-size: 18px; margin-bottom: 8px;">Trigger 9-Node Pipeline Run</h3>
-    <p style="font-size: 12px; color: var(--text-sub); margin-bottom: 16px;">Dispatches complete media generation to GitHub Actions cloud runner.</p>
-    <label style="font-size: 11px; color: var(--text-sub); display: block; margin-bottom: 6px; font-family: 'JetBrains Mono', monospace;">GITHUB PAT TOKEN</label>
-    <input type="password" id="patToken" class="input-field" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx">
+  <!-- Interactive Viewport Wrapper with Cyber Corner Brackets -->
+  <div id="canvasViewportWrapper" class="flex-1 w-full h-full relative overflow-hidden transition-all duration-300">
     
-    <div style="display: flex; gap: 10px; margin-top: 8px;">
-      <button class="btn btn-primary" style="flex: 1;" onclick="triggerGitHubAction()">⚡ FIRE PIPELINE</button>
-      <button class="btn" onclick="closeDeployModal()">CANCEL</button>
+    <!-- 4 Animated Corner Hologram Brackets -->
+    <div id="cornerTL" class="chassis-corner top-3 left-3 border-t-2 border-l-2 hidden"></div>
+    <div id="cornerTR" class="chassis-corner top-3 right-3 border-t-2 border-r-2 hidden"></div>
+    <div id="cornerBL" class="chassis-corner bottom-3 left-3 border-b-2 border-l-2 hidden"></div>
+    <div id="cornerBR" class="chassis-corner bottom-3 right-3 border-b-2 border-r-2 hidden"></div>
+
+    <!-- Zoom & Recenter Floating Buttons -->
+    <div class="absolute bottom-6 right-6 z-30 flex items-center space-x-1.5 bg-neutral-900/90 border border-white/10 rounded-xl p-1.5 backdrop-blur-md font-mono text-xs">
+      <button onclick="adjustZoom(-0.1)" class="w-7 h-7 rounded-lg bg-black/50 hover:bg-white/10 text-white flex items-center justify-center font-bold">-</button>
+      <span id="canvasZoomPercent" class="px-2 text-neutral-400">100%</span>
+      <button onclick="adjustZoom(0.1)" class="w-7 h-7 rounded-lg bg-black/50 hover:bg-white/10 text-white flex items-center justify-center font-bold">+</button>
+      <button onclick="resetCanvasTransform()" class="px-2.5 py-1 rounded-lg bg-black/50 hover:bg-white/10 text-neutral-300">RESET</button>
+    </div>
+
+    <!-- Scalable / Pannable Inner Canvas Grid -->
+    <div id="canvasSpace" class="w-[3800px] h-[2800px] absolute top-0 left-0 grid-matrix origin-top-left cursor-crosshair">
+      
+      <!-- SVG Dynamic Cables Container -->
+      <svg id="wiresSvg" class="absolute inset-0 w-full h-full pointer-events-none z-10">
+        <defs>
+          <linearGradient id="gradientActiveCable" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stop-color="var(--accent)" />
+            <stop offset="50%" stop-color="var(--secondary)" />
+            <stop offset="100%" stop-color="var(--accent)" />
+          </linearGradient>
+        </defs>
+
+        <!-- Base Connection Cables -->
+        <path id="path_1_2" class="cable-path cable-idle" />
+        <path id="path_2_3" class="cable-path cable-idle" />
+        <path id="path_2_4" class="cable-path cable-idle" />
+        <path id="path_3_5" class="cable-path cable-idle" />
+        <path id="path_4_5" class="cable-path cable-idle" />
+        <path id="path_2_6" class="cable-path cable-idle" />
+        <path id="path_6_2" class="cable-path cable-idle" />
+
+        <!-- Traveling Electron Pulse Signal Circles -->
+        <circle id="pulse_1" r="5" class="signal-pulse hidden" />
+        <circle id="pulse_2" r="5" class="signal-pulse hidden" />
+        <circle id="pulse_3" r="5" class="signal-pulse hidden" />
+      </svg>
+
+      <!-- NODE 1: TRIGGER MATRIX -->
+      <div id="node1" class="node-box absolute z-20 w-64 rounded-2xl p-4" style="left: 60px; top: 120px;">
+        <div class="flex items-center justify-between border-b border-white/10 pb-2.5 mb-3">
+          <div class="flex items-center space-x-2">
+            <div class="w-2.5 h-2.5 rounded-sm bg-amber-400"></div>
+            <span class="font-mono text-xs font-bold text-white uppercase tracking-wider">01 // TRIGGER MATRIX</span>
+          </div>
+          <span class="text-[9px] font-mono px-1.5 py-0.5 rounded bg-amber-400/15 text-amber-300 border border-amber-400/30">CRON / MANUAL</span>
+        </div>
+        <p class="text-[11px] text-neutral-400 font-mono leading-relaxed mb-3">
+          Dispatches intelligence pipeline runs at peak commuter hours via GitHub Actions.
+        </p>
+        <div class="space-y-1 font-mono text-[10px] bg-black/40 p-2 rounded-lg border border-white/5">
+          <div class="flex justify-between text-neutral-400"><span>CRON:</span><span class="text-neutral-200">0 3,11 * * *</span></div>
+          <div class="flex justify-between text-neutral-400"><span>PAYLOAD:</span><span class="text-[var(--accent)]">INTEL_DISPATCH</span></div>
+        </div>
+        <div class="port-socket out absolute -right-1.5 top-1/2 -translate-y-1/2" title="Signal Output Port" id="n1_out"></div>
+      </div>
+
+      <!-- NODE 2: GEMINI BRAIN ENGINE -->
+      <div id="node2" class="node-box absolute z-20 w-72 rounded-2xl p-4" style="left: 380px; top: 80px;">
+        <div class="port-socket absolute -left-1.5 top-1/2 -translate-y-1/2" title="Input Socket" id="n2_in"></div>
+        
+        <div class="flex items-center justify-between border-b border-white/10 pb-2.5 mb-3">
+          <div class="flex items-center space-x-2">
+            <div class="w-2.5 h-2.5 rounded-sm bg-[var(--secondary)]"></div>
+            <span class="font-mono text-xs font-bold text-white uppercase tracking-wider">02 // GEMINI BRAIN</span>
+          </div>
+          <span id="node2_status" class="text-[9px] font-mono px-1.5 py-0.5 rounded border" style="color: var(--secondary); background: rgba(0,240,255,0.1); border-color: var(--secondary);">V2.5 DISCOVERY</span>
+        </div>
+        
+        <p class="text-[11px] text-neutral-400 font-mono leading-relaxed mb-2.5">
+          Dynamic model list auto-discovery (1500 calls/day Free Tier) + strict JSON parser.
+        </p>
+
+        <div class="space-y-1 font-mono text-[10px] bg-black/40 p-2 rounded-lg border border-white/5 mb-2">
+          <div class="text-neutral-400">ACTIVE: <strong class="text-[var(--secondary)]" id="activeModelLabel">gemini-2.5-flash</strong></div>
+          <div class="text-neutral-500">FALLBACK: gemma-4-26b / 1.5-flash</div>
+        </div>
+
+        <div class="port-socket out absolute -right-1.5 top-1/3 -translate-y-1/2" title="Card Payload Port" id="n2_out_card"></div>
+        <div class="port-socket out absolute -right-1.5 top-2/3 -translate-y-1/2" title="HTML Article Port" id="n2_out_html"></div>
+        <div class="port-socket err absolute left-1/2 -bottom-1.5 -translate-x-1/2" title="Error Fault Port" id="n2_err"></div>
+      </div>
+
+      <!-- NODE 3: PLAYWRIGHT MEDIA CORE -->
+      <div id="node3" class="node-box absolute z-20 w-64 rounded-2xl p-4" style="left: 740px; top: 40px;">
+        <div class="port-socket absolute -left-1.5 top-1/2 -translate-y-1/2" title="Input" id="n3_in"></div>
+
+        <div class="flex items-center justify-between border-b border-white/10 pb-2.5 mb-3">
+          <div class="flex items-center space-x-2">
+            <div class="w-2.5 h-2.5 rounded-sm bg-[var(--danger)]"></div>
+            <span class="font-mono text-xs font-bold text-white uppercase tracking-wider">03 // PLAYWRIGHT CORE</span>
+          </div>
+          <span class="text-[9px] font-mono px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-300 border border-rose-500/30">1080x1350</span>
+        </div>
+        <p class="text-[11px] text-neutral-400 font-mono leading-relaxed mb-2">
+          Builds DOM with silicon hardware graphics and captures high-res 4K PNG screenshot.
+        </p>
+        <div class="port-socket out absolute -right-1.5 top-1/2 -translate-y-1/2" title="Image Out" id="n3_out"></div>
+      </div>
+
+      <!-- NODE 4: WEB REPO COMMIT ENGINE -->
+      <div id="node4" class="node-box absolute z-20 w-64 rounded-2xl p-4" style="left: 740px; top: 260px;">
+        <div class="port-socket absolute -left-1.5 top-1/2 -translate-y-1/2" title="Input" id="n4_in"></div>
+
+        <div class="flex items-center justify-between border-b border-white/10 pb-2.5 mb-3">
+          <div class="flex items-center space-x-2">
+            <div class="w-2.5 h-2.5 rounded-sm bg-[var(--accent)]"></div>
+            <span class="font-mono text-xs font-bold text-white uppercase tracking-wider">04 // REPO COMMIT</span>
+          </div>
+          <span class="text-[9px] font-mono px-1.5 py-0.5 rounded border" style="color: var(--accent); background: rgba(0,255,136,0.1); border-color: var(--accent);">PAGES CDN</span>
+        </div>
+        <p class="text-[11px] text-neutral-400 font-mono leading-relaxed mb-2">
+          Writes static 800+ word HTML inside <code class="text-[var(--secondary)]">articles/</code> and triggers GitHub Pages build.
+        </p>
+        <div class="port-socket out absolute -right-1.5 top-1/2 -translate-y-1/2" title="URL Out" id="n4_out"></div>
+      </div>
+
+      <!-- NODE 5: TELEGRAM BROADCAST GATEWAY -->
+      <div id="node5" class="node-box absolute z-20 w-72 rounded-2xl p-4" style="left: 1080px; top: 140px;">
+        <div class="port-socket absolute -left-1.5 top-1/3 -translate-y-1/2" title="Media In" id="n5_in_img"></div>
+        <div class="port-socket absolute -left-1.5 top-2/3 -translate-y-1/2" title="URL In" id="n5_in_url"></div>
+
+        <div class="flex items-center justify-between border-b border-white/10 pb-2.5 mb-3">
+          <div class="flex items-center space-x-2">
+            <div class="w-2.5 h-2.5 rounded-sm bg-sky-400"></div>
+            <span class="font-mono text-xs font-bold text-white uppercase tracking-wider">05 // TELEGRAM DISPATCH</span>
+          </div>
+          <span class="text-[9px] font-mono px-1.5 py-0.5 rounded bg-sky-400/15 text-sky-400 border border-sky-400/30">GATEWAY</span>
+        </div>
+        <p class="text-[11px] text-neutral-400 font-mono leading-relaxed mb-2.5">
+          Posts visual card, curiosity hook, interactive quiz poll, and web article CTA button.
+        </p>
+        <div class="text-[10px] font-mono bg-black/40 p-2 rounded-lg border border-white/5 space-y-1">
+          <div class="text-neutral-400">CHANNEL: <span class="text-white font-semibold">@cultynex_daily</span></div>
+          <div class="text-neutral-400">STATUS: <span class="text-[var(--accent)]" id="tgGatewayStatus">IDLE / READY</span></div>
+        </div>
+      </div>
+
+      <!-- NODE 6: AI SENTRY & SELF-HEALER -->
+      <div id="node6" class="node-box absolute z-20 w-80 rounded-2xl p-4 border border-rose-500/40" style="left: 380px; top: 380px;">
+        <div class="port-socket absolute -top-1.5 left-1/2 -translate-x-1/2 err" title="Error Sensor Socket" id="n6_in"></div>
+
+        <div class="flex items-center justify-between border-b border-white/10 pb-2.5 mb-3">
+          <div class="flex items-center space-x-2">
+            <span class="w-2 h-2 rounded-full bg-[var(--danger)] animate-ping"></span>
+            <span class="font-mono text-xs font-bold text-white uppercase tracking-wider">06 // AI SENTRY HEALER</span>
+          </div>
+          <span class="text-[9px] font-mono px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/40 font-bold">AUTONOMOUS</span>
+        </div>
+
+        <p class="text-[11px] text-neutral-300 font-mono leading-relaxed mb-3">
+          Intercepts execution exceptions, inspects action logs, generates AST diff, and patches repository code autonomously.
+        </p>
+
+        <div id="healerTelemetryBox" class="bg-black/50 border border-white/5 p-2.5 rounded-xl font-mono text-[10px] space-y-1.5 mb-3">
+          <div class="flex justify-between text-neutral-400">
+            <span>MONITOR:</span>
+            <span class="text-[var(--accent)]">ACTIVE (LISTENING)</span>
+          </div>
+          <div class="text-neutral-500" id="healerStateText">// No anomalies detected. Pipeline state nominal.</div>
+        </div>
+
+        <button id="btnAutoHeal" onclick="executeAutoHeal()" disabled class="w-full py-2 px-3 rounded-xl bg-neutral-900 border border-neutral-800 text-neutral-500 font-mono text-xs font-bold tracking-wider transition flex items-center justify-center gap-1.5">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+          <span>⚡ RUN SELF-HEAL PATCH</span>
+        </button>
+      </div>
+
     </div>
   </div>
-</div>
 
-<script>
-  let activeNode = null;
-  let offsetX = 0, offsetY = 0;
+  <!-- Real-Time Telemetry Log Terminal Drawer -->
+  <aside id="consoleDrawer" class="h-44 border-t border-white/10 bg-black/85 backdrop-blur-xl p-3 px-5 flex flex-col justify-between shrink-0 z-30 font-mono">
+    <div class="flex items-center justify-between border-b border-white/10 pb-2 text-xs">
+      <div class="flex items-center space-x-2">
+        <span class="w-2 h-2 rounded-full bg-[var(--accent)]"></span>
+        <span class="font-bold text-white uppercase tracking-wider">REAL-TIME ORCHESTRATION TELEMETRY</span>
+      </div>
+      <div class="flex items-center space-x-3 text-[11px] text-neutral-400">
+        <span id="canvasZoomLabel">ZOOM: 100%</span>
+        <span>•</span>
+        <button onclick="clearConsoleLogs()" class="hover:text-white transition">CLEAR TERMINAL</button>
+      </div>
+    </div>
 
-  document.querySelectorAll('.node').forEach(node => {
-    node.addEventListener('mousedown', startDrag);
-    node.addEventListener('touchstart', startDragTouch, { passive: false });
-  });
+    <!-- Scrolling Log Stream -->
+    <div id="consoleLogFeed" class="flex-1 overflow-y-auto py-2 text-[11px] leading-relaxed space-y-1 text-neutral-300">
+      <div class="text-neutral-500">// Matrix chassis ready. Drag nodes anywhere or click "+ Add Node / Tool" to expand automation.</div>
+    </div>
 
-  function startDrag(e) {
-    if (e.target.closest('button')) return;
-    activeNode = this;
-    const rect = activeNode.getBoundingClientRect();
-    offsetX = e.clientX - rect.left;
-    offsetY = e.clientY - rect.top;
-    window.addEventListener('mousemove', drag);
-    window.addEventListener('mouseup', stopDrag);
-  }
+    <!-- Quick Status Strip -->
+    <div class="pt-2 border-t border-white/10 flex items-center justify-between text-xs text-neutral-400">
+      <div class="flex items-center space-x-2">
+        <span>PIPELINE ENGINE:</span>
+        <span id="globalPipelineStatus" class="text-[var(--accent)] font-bold">READY // NOMINAL</span>
+      </div>
+      <div class="flex items-center space-x-4">
+        <a href="./" target="_blank" class="hover:text-white transition">&larr; Terminal Public Wire</a>
+        <a href="https://github.com/realmrajaysingh-dev/telegram-commuter-bot/actions" target="_blank" class="text-[var(--secondary)] hover:underline">GitHub Actions Runner &rarr;</a>
+      </div>
+    </div>
+  </aside>
 
-  function startDragTouch(e) {
-    activeNode = this;
-    const rect = activeNode.getBoundingClientRect();
-    const touch = e.touches[0];
-    offsetX = touch.clientX - rect.left;
-    offsetY = touch.clientY - rect.top;
-    window.addEventListener('touchmove', dragTouch, { passive: false });
-    window.addEventListener('touchend', stopDragTouch);
-  }
+  <!-- DRAWER: 30+ MODULAR TOOLS & NODES CATALOG (N8N / COMFYUI STYLE) -->
+  <aside id="toolDrawer" class="fixed inset-y-0 right-0 z-50 w-full sm:w-[480px] bg-black/95 border-l border-white/15 p-6 shadow-2xl transform translate-x-full transition-transform duration-300 flex flex-col justify-between font-mono">
+    <div class="space-y-4 overflow-y-auto pr-1">
+      <div class="flex items-center justify-between border-b border-white/10 pb-3">
+        <div class="flex items-center space-x-2">
+          <span class="w-2 h-2 rounded-full bg-[var(--accent)]"></span>
+          <span class="text-xs font-bold text-white uppercase tracking-wider">MODULAR TOOL CATALOG (30 TOOLS)</span>
+        </div>
+        <button onclick="toggleToolDrawer()" class="text-neutral-400 hover:text-white text-xl">&times;</button>
+      </div>
 
-  function drag(e) {
-    if (!activeNode) return;
-    activeNode.style.left = (e.clientX - offsetX) + 'px';
-    activeNode.style.top = (e.clientY - offsetY) + 'px';
-    updateAllWires();
-  }
+      <p class="text-xs text-neutral-400 font-sans leading-relaxed">
+        Click any tool to instantiate and wire a new autonomous node onto the orchestration matrix canvas.
+      </p>
 
-  function dragTouch(e) {
-    if (!activeNode) return;
-    e.preventDefault();
-    const touch = e.touches[0];
-    activeNode.style.left = (touch.clientX - offsetX) + 'px';
-    activeNode.style.top = (touch.clientY - offsetY) + 'px';
-    updateAllWires();
-  }
+      <!-- Category Filter Tabs -->
+      <div class="flex flex-wrap gap-1.5 pb-2 border-b border-white/10 text-[10px]">
+        <button onclick="filterTools('all')" class="tool-cat-btn px-2.5 py-1 rounded-lg bg-white/20 text-white font-bold">ALL</button>
+        <button onclick="filterTools('ai')" class="tool-cat-btn px-2.5 py-1 rounded-lg bg-neutral-900 text-neutral-400 hover:text-white">AI BRAINS</button>
+        <button onclick="filterTools('media')" class="tool-cat-btn px-2.5 py-1 rounded-lg bg-neutral-900 text-neutral-400 hover:text-white">MEDIA & TTS</button>
+        <button onclick="filterTools('triggers')" class="tool-cat-btn px-2.5 py-1 rounded-lg bg-neutral-900 text-neutral-400 hover:text-white">TRIGGERS</button>
+        <button onclick="filterTools('distro')" class="tool-cat-btn px-2.5 py-1 rounded-lg bg-neutral-900 text-neutral-400 hover:text-white">DISTRIBUTION</button>
+        <button onclick="filterTools('data')" class="tool-cat-btn px-2.5 py-1 rounded-lg bg-neutral-900 text-neutral-400 hover:text-white">STORAGE & SEO</button>
+      </div>
 
-  function stopDrag() { activeNode = null; window.removeEventListener('mousemove', drag); window.removeEventListener('mouseup', stopDrag); }
-  function stopDragTouch() { activeNode = null; window.removeEventListener('touchmove', dragTouch); window.removeEventListener('touchend', stopDragTouch); }
+      <!-- Tool Grid List -->
+      <div id="toolCatalogList" class="space-y-2.5">
+        <!-- Rendered dynamically via JS with 30 tools -->
+      </div>
+    </div>
 
-  function drawBezier(wireId, nodeAId, nodeBId) {
-    const elA = document.getElementById(nodeAId);
-    const elB = document.getElementById(nodeBId);
-    const wire = document.getElementById(wireId);
-    if (!elA || !elB || !wire) return;
+    <div class="pt-3 border-t border-white/10">
+      <button onclick="toggleToolDrawer()" class="w-full py-2.5 rounded-xl bg-neutral-900 text-neutral-400 text-xs hover:text-white transition">
+        Close Tool Catalog
+      </button>
+    </div>
+  </aside>
 
-    const rA = elA.getBoundingClientRect();
-    const rB = elB.getBoundingClientRect();
+  <!-- MODAL: GITHUB DISPATCH ACTION -->
+  <div id="deployModal" class="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm hidden flex items-center justify-center p-4">
+    <div class="bg-neutral-900 border border-white/15 w-full max-w-md rounded-2xl p-6 space-y-4 shadow-2xl relative font-mono text-xs">
+      <button onclick="closeDeployModal()" class="absolute top-4 right-4 text-neutral-400 hover:text-white text-lg">&times;</button>
 
-    const startX = rA.left + rA.width;
-    const startY = rA.top + (rA.height / 2);
-    const endX = rB.left;
-    const endY = rB.top + (rB.height / 2);
+      <div class="flex items-center space-x-2 text-[var(--accent)]">
+        <svg class="w-4 h-4 fill-current" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14h2v2h-2zm0-10h2v8h-2z"/></svg>
+        <span class="font-bold uppercase tracking-wider text-sm">DEPLOY DISPATCH WORKFLOW</span>
+      </div>
+      
+      <p class="text-neutral-400 leading-relaxed font-sans text-xs">
+        Fires <code class="text-white">daily_bot.yml</code> via GitHub Actions REST API with live cloud execution.
+      </p>
 
-    const dist = Math.abs(endX - startX) * 0.55;
-    wire.setAttribute('d', `M ${startX} ${startY} C ${startX + dist} ${startY}, ${endX - dist} ${endY}, ${endX} ${endY}`);
-  }
+      <div class="space-y-3 font-mono">
+        <div>
+          <label class="block text-neutral-300 text-[11px] mb-1">GitHub Personal Access Token (PAT)</label>
+          <input id="ghPatInput" type="password" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" class="w-full bg-black/60 border border-neutral-700 text-white px-3 py-2.5 rounded-xl focus:outline-none focus:border-[var(--accent)] transition">
+        </div>
 
-  function updateAllWires() {
-    drawBezier('wire-1-2', 'node-1', 'node-2');
-    drawBezier('wire-2-3', 'node-2', 'node-3');
-    drawBezier('wire-2-4', 'node-2', 'node-4');
-    drawBezier('wire-2-7', 'node-2', 'node-7');
-    drawBezier('wire-2-8', 'node-2', 'node-8');
-    drawBezier('wire-3-5', 'node-3', 'node-5');
-    drawBezier('wire-4-5', 'node-4', 'node-5');
-    drawBezier('wire-7-5', 'node-7', 'node-5');
-    drawBezier('wire-4-9', 'node-4', 'node-9');
-    drawBezier('wire-2-6', 'node-2', 'node-6');
-  }
+        <div>
+          <label class="block text-neutral-300 text-[11px] mb-1">Custom Editorial Topic (Optional)</label>
+          <input id="customFocusInput" type="text" placeholder="e.g. Sub-1.4nm Angstrom High-NA EUV yield limits..." class="w-full bg-black/60 border border-neutral-700 text-white px-3 py-2.5 rounded-xl focus:outline-none focus:border-[var(--secondary)] transition">
+        </div>
 
-  window.addEventListener('resize', updateAllWires);
-  window.addEventListener('load', () => {
-    updateAllWires();
+        <button onclick="dispatchLiveWorkflow()" id="btnLiveDispatch" class="w-full py-3 rounded-xl font-bold text-black transition tracking-wider uppercase text-xs flex items-center justify-center gap-1.5 shadow-lg" style="background: var(--accent);">
+          <span>⚡ TRIGGER RUN VIA GITHUB ACTIONS</span>
+        </button>
+      </div>
+
+      <div id="deployStatusBox" class="hidden p-3 rounded-xl bg-black border border-neutral-800 font-mono text-[11px] leading-relaxed"></div>
+    </div>
+  </div>
+
+  <!-- DRAWER: MODULAR CHASSIS & BLUEPRINT EXPORTER -->
+  <div id="exportDrawer" class="fixed inset-y-0 right-0 z-50 w-full sm:w-[460px] bg-black/95 border-l border-white/15 p-6 space-y-4 shadow-2xl transform translate-x-full transition-transform duration-300 flex flex-col justify-between font-mono">
+    <div class="space-y-4 overflow-y-auto pr-1">
+      <div class="flex items-center justify-between border-b border-white/10 pb-3">
+        <div class="flex items-center space-x-2 text-[var(--secondary)]">
+          <span class="w-2 h-2 rounded-full bg-[var(--secondary)]"></span>
+          <span class="text-xs font-bold uppercase tracking-wider">CHASSIS PRESET & SHELL EXPORTER</span>
+        </div>
+        <button onclick="toggleExportDrawer()" class="text-neutral-400 hover:text-white text-xl">&times;</button>
+      </div>
+
+      <h3 class="text-sm font-bold text-white font-sans">
+        Export Reusable Node Framework ("The Case / Cover")
+      </h3>
+      <p class="text-xs text-neutral-400 font-sans leading-relaxed">
+        Just like a phone case or hardware chassis, other engineers can wrap their own Gemini keys, Telegram channels, and GitHub repos inside this exact visual orchestration shell.
+      </p>
+
+      <div class="space-y-1.5">
+        <div class="flex justify-between items-center text-[11px] text-neutral-400">
+          <span>PORTABLE ARCHITECTURE SCHEMA:</span>
+          <button onclick="copyExportJson()" class="text-[var(--secondary)] hover:underline text-[10px]">COPY JSON</button>
+        </div>
+        <textarea id="exportJsonArea" readonly rows="8" class="w-full bg-black/80 border border-neutral-800 rounded-xl p-3 text-[10px] text-[var(--accent)] font-mono leading-relaxed focus:outline-none"></textarea>
+      </div>
+
+      <div class="space-y-1.5">
+        <div class="flex justify-between items-center text-[11px] text-neutral-400">
+          <span>EMBEDDABLE IFRAME SHELL:</span>
+          <button onclick="copyEmbedCode()" class="text-[var(--secondary)] hover:underline text-[10px]">COPY TAG</button>
+        </div>
+        <input id="exportEmbedInput" readonly type="text" class="w-full bg-black/80 border border-neutral-800 rounded-xl px-3 py-2 text-[10px] text-neutral-300 font-mono focus:outline-none">
+      </div>
+    </div>
+
+    <div class="pt-3 border-t border-white/10 space-y-2">
+      <button onclick="downloadChassisConfigFile()" class="w-full py-2.5 rounded-xl font-bold text-xs text-black transition uppercase tracking-wider" style="background: var(--accent);">
+        Download .cultynex-flow.json
+      </button>
+      <button onclick="toggleExportDrawer()" class="w-full py-2 rounded-xl bg-neutral-900 text-neutral-400 text-xs hover:text-white">
+        Close Drawer
+      </button>
+    </div>
+  </div>
+
+  <!-- JAVASCRIPT: THEMES, CHASSIS CASE, 30+ TOOLS CATALOG, PAN/ZOOM & BEZIER MATH -->
+  <script>
+    // 1. Initial State & Configuration
+    let currentTheme = 'onyx';
+    let isChassisCaseActive = false;
+    let hasInjectedError = false;
+    let isSimulating = false;
+    let zoomLevel = 1.0;
+    let panX = 0, panY = 0;
+    let isPanning = false, panStartX = 0, panStartY = 0;
+    const REPO = "realmrajaysingh-dev/telegram-commuter-bot";
+    const WORKFLOW_ID = "daily_bot.yml";
+
+    // Load saved PAT token
     const savedToken = localStorage.getItem("c_gh_token");
-    if (savedToken) document.getElementById("patToken").value = savedToken;
-  });
+    if (savedToken) document.getElementById("ghPatInput").value = savedToken;
 
-  function simulateFullWorkflow() {
-    resetStates();
-    setNodeState(1, 'running');
-    setTimeout(() => {
-      setCableState('wire-1-2', 'active');
-      setNodeState(1, 'idle');
-      setNodeState(2, 'running');
+    // 2. 30+ Modular Tool Definitions (n8n/ComfyUI Catalog)
+    const TOOL_CATALOG = [
+      // AI Brains
+      { id: "tool_gemini_25", cat: "ai", name: "Gemini 2.5 Flash", badge: "FREE 1500/DAY", desc: "Ultra low-latency structured reasoning core." },
+      { id: "tool_claude_35", cat: "ai", name: "Claude 3.5 Sonnet", badge: "API KEY", desc: "Elite coding & long-form prose synthesis." },
+      { id: "tool_deepseek_r1", cat: "ai", name: "DeepSeek R1 Open", badge: "OPEN-WEIGHTS", desc: "Distilled reasoning chains with local inference." },
+      { id: "tool_groq_llama", cat: "ai", name: "Groq Llama-3 70B", badge: "500 T/S", desc: "Instantaneous hardware acceleration chiplets." },
+      { id: "tool_gemma_26b", cat: "ai", name: "Gemma 4 26B A4B", badge: "FREE TIER", desc: "Production backup model for 429 quota bursts." },
+      { id: "tool_openai_o3", cat: "ai", name: "OpenAI o3-Mini", badge: "REASONING", desc: "Complex scientific and hardware math evaluation." },
 
-      setTimeout(() => {
-        setCableState('wire-1-2', '');
-        setCableState('wire-2-3', 'active');
-        setCableState('wire-2-4', 'active');
-        setCableState('wire-2-7', 'active');
-        setCableState('wire-2-8', 'active');
-        setNodeState(2, 'idle');
-        setNodeState(3, 'running');
-        setNodeState(4, 'running');
-        setNodeState(7, 'running');
-        setNodeState(8, 'running');
+      // Media & Voice
+      { id: "tool_playwright", cat: "media", name: "Playwright Core", badge: "HEADLESS", desc: "1080x1350 editorial DOM snapshot renderer." },
+      { id: "tool_edge_tts", cat: "media", name: "Edge-TTS Neural Voice", badge: "100% FREE", desc: "Natural multi-lingual audio synthesis podcast generator." },
+      { id: "tool_flux_webgpu", cat: "media", name: "Flux WebGPU Core", badge: "WEBGPU", desc: "In-browser diffusion chiplet hardware schematics." },
+      { id: "tool_remotion_vid", cat: "media", name: "Remotion Video Engine", badge: "REACT", desc: "Programmatic 15s Instagram Reels & TikTok generator." },
+      { id: "tool_sd_turbo", cat: "media", name: "SDXL Turbo Fast", badge: "1-STEP", desc: "Sub-second 512x512 micro-visual creation." },
+      { id: "tool_did_avatar", cat: "media", name: "D-ID Talking Agent", badge: "AVATAR", desc: "Photorealistic AI anchor video briefings." },
 
-        setTimeout(() => {
-          setCableState('wire-2-3', '');
-          setCableState('wire-2-4', '');
-          setCableState('wire-2-7', '');
-          setCableState('wire-2-8', '');
-          setCableState('wire-3-5', 'active');
-          setCableState('wire-4-5', 'active');
-          setCableState('wire-7-5', 'active');
-          setCableState('wire-4-9', 'active');
-          setNodeState(3, 'idle');
-          setNodeState(4, 'idle');
-          setNodeState(7, 'idle');
-          setNodeState(8, 'idle');
-          setNodeState(5, 'running');
-          setNodeState(9, 'running');
+      // Ingestion & Triggers
+      { id: "tool_github_cron", cat: "triggers", name: "GitHub Actions Cron", badge: "CLOUD", desc: "Zero-cost 2x daily automated timer trigger." },
+      { id: "tool_webhook_in", cat: "triggers", name: "Inbound Webhook", badge: "REST", desc: "Trigger pipeline from external CRM or Stripe." },
+      { id: "tool_arxiv_scraper", cat: "triggers", name: "ArXiv & HN Sentinel", badge: "AUTO-PARSE", desc: "Monitors semiconductor & quantum breakthrough papers." },
+      { id: "tool_google_trends", cat: "triggers", name: "Google Trends Radar", badge: "PULSE", desc: "Detects explosive viral hardware keywords." },
+      { id: "tool_yt_transcript", cat: "triggers", name: "YouTube Transcript Bot", badge: "SCRAPER", desc: "Ingests TSMC and Nvidia keynote transcript streams." },
+      { id: "tool_telegram_in", cat: "triggers", name: "Telegram Bot Commands", badge: "/DISPATCH", desc: "Admins can prompt pipeline via private chat." },
+
+      // Distribution
+      { id: "tool_telegram_out", cat: "distro", name: "Telegram Broadcast", badge: "PHOTO+POLL", desc: "Direct channel publisher with quiz and CTA buttons." },
+      { id: "tool_x_poster", cat: "distro", name: "X / Twitter Threader", badge: "API V2", desc: "Converts deep-dive into viral 5-part tweet thread." },
+      { id: "tool_discord_hook", cat: "distro", name: "Discord Webhook Hub", badge: "EMBED", desc: "Broadcasts high-res cards to developer servers." },
+      { id: "tool_linkedin_post", cat: "distro", name: "LinkedIn Executive Post", badge: "B2B", desc: "Longform tech-macro analysis for enterprise builders." },
+      { id: "tool_whatsapp_cloud", cat: "distro", name: "WhatsApp Cloud API", badge: "NEWSLETTER", desc: "Instant mobile broadcast to private subscriber circles." },
+      { id: "tool_mastodon_fed", cat: "distro", name: "Mastodon Fediverse", badge: "ACTIVITYPUB", desc: "Decentralized open-web broadcast node." },
+
+      // Data, Storage & SEO
+      { id: "tool_indexnow_seo", cat: "data", name: "IndexNow Fast SEO", badge: "INSTANT", desc: "Pings Bing & Yandex to index new articles in 15 mins." },
+      { id: "tool_gh_flatdb", cat: "data", name: "GitHub Flat-File CSV", badge: "FREE DB", desc: "Zero-cost subscriber email vault inside repo." },
+      { id: "tool_cloudflare_d1", cat: "data", name: "Cloudflare D1 SQL", badge: "EDGE", desc: "Sub-5ms global reader analytics store." },
+      { id: "tool_supabase_db", cat: "data", name: "Supabase Postgres", badge: "REALTIME", desc: "PostgreSQL database with vector embeddings." },
+      { id: "tool_resend_email", cat: "data", name: "Resend Email Dispatch", badge: "TRANSACTIONAL", desc: "Automated weekly PDF roadmap delivery." },
+      { id: "tool_sentry_healer", cat: "data", name: "AI AST Self-Healer", badge: "REPAIR", desc: "Autonomous traceback inspector & code patcher." }
+    ];
+
+    // 3. Theme Engine
+    function setTheme(themeName) {
+      currentTheme = themeName;
+      document.body.setAttribute('data-theme', themeName);
+      document.querySelectorAll('.theme-btn').forEach(btn => {
+        btn.classList.toggle('bg-white/15', btn.innerText.toLowerCase() === themeName.toLowerCase());
+        btn.classList.toggle('text-white', btn.innerText.toLowerCase() === themeName.toLowerCase());
+      });
+      updateAllWires();
+      appendLog(`Chassis visual palette switched to: [${themeName.toUpperCase()}].`, "cyan");
+    }
+
+    // 4. Chassis Case Mode (The "Phone Cover / Framework")
+    function toggleChassisCase() {
+      isChassisCaseActive = !isChassisCaseActive;
+      const wrapper = document.getElementById('canvasViewportWrapper');
+      const corners = [document.getElementById('cornerTL'), document.getElementById('cornerTR'), document.getElementById('cornerBL'), document.getElementById('cornerBR')];
+      const btn = document.getElementById('btnChassisToggle');
+
+      if (isChassisCaseActive) {
+        wrapper.classList.add('chassis-case-active');
+        corners.forEach(c => c.classList.remove('hidden'));
+        btn.classList.add('border-[var(--accent)]', 'text-[var(--accent)]');
+        appendLog("3D Cybernetic Chassis Frame Engaged: Hologram perimeter active.", "ok");
+      } else {
+        wrapper.classList.remove('chassis-case-active');
+        corners.forEach(c => c.classList.add('hidden'));
+        btn.classList.remove('border-[var(--accent)]', 'text-[var(--accent)]');
+        appendLog("Chassis frame detached. Canvas reverted to borderless flat matrix.", "normal");
+      }
+    }
+
+    // 5. Tool Catalog Renderer & Spawner
+    function renderToolCatalog(filter = 'all') {
+      const list = document.getElementById('toolCatalogList');
+      list.innerHTML = "";
+      const filtered = filter === 'all' ? TOOL_CATALOG : TOOL_CATALOG.filter(t => t.cat === filter);
+
+      filtered.forEach(tool => {
+        const item = document.createElement('div');
+        item.className = "p-3 rounded-xl bg-neutral-900/70 border border-white/10 hover:border-[var(--accent)] cursor-pointer transition flex items-center justify-between group";
+        item.innerHTML = `
+          <div>
+            <div class="flex items-center space-x-2">
+              <span class="font-bold text-white text-xs group-hover:text-[var(--accent)] transition">${tool.name}</span>
+              <span class="text-[9px] px-1.5 py-0.5 rounded bg-white/10 text-neutral-300 font-mono">${tool.badge}</span>
+            </div>
+            <p class="text-[11px] text-neutral-400 font-sans mt-0.5">${tool.desc}</p>
+          </div>
+          <button class="px-2 py-1 rounded bg-black/60 border border-white/10 text-[10px] text-[var(--accent)] font-bold group-hover:bg-[var(--accent)] group-hover:text-black transition">
+            + ADD
+          </button>
+        `;
+        item.onclick = () => spawnCustomNode(tool);
+        list.appendChild(item);
+      });
+    }
+
+    function filterTools(category) {
+      document.querySelectorAll('.tool-cat-btn').forEach(btn => {
+        btn.classList.toggle('bg-white/20', btn.innerText.toLowerCase().includes(category.toLowerCase()));
+        btn.classList.toggle('text-white', btn.innerText.toLowerCase().includes(category.toLowerCase()));
+      });
+      renderToolCatalog(category);
+    }
+
+    let nodeCounter = 6;
+    function spawnCustomNode(tool) {
+      nodeCounter++;
+      const id = `node_dyn_${nodeCounter}`;
+      const canvas = document.getElementById('canvasSpace');
+      
+      const nodeEl = document.createElement('div');
+      nodeEl.id = id;
+      nodeEl.className = "node-box absolute z-20 w-64 rounded-2xl p-4";
+      // Place near visible center
+      const posX = 420 + (nodeCounter * 20);
+      const posY = 180 + (nodeCounter * 25);
+      nodeEl.style.left = `${posX}px`;
+      nodeEl.style.top = `${posY}px`;
+
+      nodeEl.innerHTML = `
+        <div class="port-socket absolute -left-1.5 top-1/2 -translate-y-1/2" id="${id}_in"></div>
+        <div class="flex items-center justify-between border-b border-white/10 pb-2 mb-2.5">
+          <div class="flex items-center space-x-2">
+            <span class="w-2 h-2 rounded-full bg-[var(--accent)]"></span>
+            <span class="font-mono text-xs font-bold text-white uppercase">${nodeCounter} // ${tool.name}</span>
+          </div>
+          <span class="text-[9px] font-mono px-1.5 py-0.5 rounded bg-white/10 text-neutral-300">${tool.badge}</span>
+        </div>
+        <p class="text-[11px] text-neutral-400 font-mono mb-2">${tool.desc}</p>
+        <div class="text-[9px] font-mono bg-black/40 p-1.5 rounded text-neutral-400 flex justify-between">
+          <span>STATUS:</span><span class="text-[var(--accent)]">CONNECTED</span>
+        </div>
+        <div class="port-socket out absolute -right-1.5 top-1/2 -translate-y-1/2" id="${id}_out"></div>
+      `;
+
+      canvas.appendChild(nodeEl);
+      bindDragEvent(nodeEl);
+      document.getElementById('activeNodeCounter').innerText = `${nodeCounter} LIVE`;
+      appendLog(`Spawned new modular node: [${nodeCounter} // ${tool.name}] onto matrix.`, "ok");
+      toggleToolDrawer();
+    }
+
+    function toggleToolDrawer() {
+      const drawer = document.getElementById('toolDrawer');
+      drawer.classList.toggle('translate-x-full');
+      renderToolCatalog('all');
+    }
+
+    // 6. Bezier Cable Math
+    function getPortCenter(elementId) {
+      const el = document.getElementById(elementId);
+      if (!el) return { x: 0, y: 0 };
+      const rect = el.getBoundingClientRect();
+      const parentRect = document.getElementById('canvasSpace').getBoundingClientRect();
+      return {
+        x: (rect.left + rect.width / 2) - parentRect.left,
+        y: (rect.top + rect.height / 2) - parentRect.top
+      };
+    }
+
+    function createSmoothBezier(p1, p2) {
+      const dx = Math.abs(p2.x - p1.x) * 0.55;
+      const cp1x = p1.x + Math.max(dx, 40);
+      const cp1y = p1.y;
+      const cp2x = p2.x - Math.max(dx, 40);
+      const cp2y = p2.y;
+      return `M ${p1.x} ${p1.y} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2.x} ${p2.y}`;
+    }
+
+    function updateAllWires() {
+      // 1 -> 2
+      const p1 = getPortCenter('n1_out');
+      const p2 = getPortCenter('n2_in');
+      document.getElementById('path_1_2').setAttribute('d', createSmoothBezier(p1, p2));
+
+      // 2 -> 3
+      const p2_card = getPortCenter('n2_out_card');
+      const p3_in = getPortCenter('n3_in');
+      document.getElementById('path_2_3').setAttribute('d', createSmoothBezier(p2_card, p3_in));
+
+      // 2 -> 4
+      const p2_html = getPortCenter('n2_out_html');
+      const p4_in = getPortCenter('n4_in');
+      document.getElementById('path_2_4').setAttribute('d', createSmoothBezier(p2_html, p4_in));
+
+      // 3 -> 5
+      const p3_out = getPortCenter('n3_out');
+      const p5_img = getPortCenter('n5_in_img');
+      document.getElementById('path_3_5').setAttribute('d', createSmoothBezier(p3_out, p5_img));
+
+      // 4 -> 5
+      const p4_out = getPortCenter('n4_out');
+      const p5_url = getPortCenter('n5_in_url');
+      document.getElementById('path_4_5').setAttribute('d', createSmoothBezier(p4_out, p5_url));
+
+      // 2 -> 6 (Fault cable)
+      const p2_err = getPortCenter('n2_err');
+      const p6_in = getPortCenter('n6_in');
+      document.getElementById('path_2_6').setAttribute('d', `M ${p2_err.x} ${p2_err.y} L ${p6_in.x} ${p6_in.y}`);
+
+      // 6 -> 2 (Repair line)
+      document.getElementById('path_6_2').setAttribute('d', `M ${p6_in.x + 20} ${p6_in.y} Q ${p2_err.x + 50} ${(p6_in.y + p2_err.y)/2} ${p2_err.x + 20} ${p2_err.y}`);
+    }
+
+    // 7. Draggable Nodes Engine
+    function bindDragEvent(node) {
+      let isDragging = false;
+      let startX, startY, origX, origY;
+
+      node.addEventListener('mousedown', (e) => {
+        if (e.target.classList.contains('port-socket') || e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
+        isDragging = true;
+        node.classList.add('selected');
+        startX = e.clientX;
+        startY = e.clientY;
+        origX = parseInt(node.style.left) || 0;
+        origY = parseInt(node.style.top) || 0;
+      });
+
+      window.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+        const dx = (e.clientX - startX) / zoomLevel;
+        const dy = (e.clientY - startY) / zoomLevel;
+        node.style.left = `${origX + dx}px`;
+        node.style.top = `${origY + dy}px`;
+        updateAllWires();
+      });
+
+      window.addEventListener('mouseup', () => {
+        if (isDragging) {
+          isDragging = false;
+          node.classList.remove('selected');
+        }
+      });
+
+      // Touch handlers
+      node.addEventListener('touchstart', (e) => {
+        if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT') return;
+        const t = e.touches[0];
+        isDragging = true;
+        startX = t.clientX;
+        startY = t.clientY;
+        origX = parseInt(node.style.left) || 0;
+        origY = parseInt(node.style.top) || 0;
+      }, { passive: true });
+
+      window.addEventListener('touchmove', (e) => {
+        if (!isDragging) return;
+        const t = e.touches[0];
+        const dx = (t.clientX - startX) / zoomLevel;
+        const dy = (t.clientY - startY) / zoomLevel;
+        node.style.left = `${origX + dx}px`;
+        node.style.top = `${origY + dy}px`;
+        updateAllWires();
+      }, { passive: true });
+
+      window.addEventListener('touchend', () => { isDragging = false; });
+    }
+
+    document.querySelectorAll('.node-box').forEach(node => bindDragEvent(node));
+
+    // 8. Canvas Pan & Zoom Engine
+    const viewport = document.getElementById('canvasViewportWrapper');
+    const space = document.getElementById('canvasSpace');
+
+    viewport.addEventListener('mousedown', (e) => {
+      if (e.target === viewport || e.target === space || e.target.tagName === 'svg') {
+        isPanning = true;
+        panStartX = e.clientX - panX;
+        panStartY = e.clientY - panY;
+        space.style.cursor = 'grabbing';
+      }
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (!isPanning) return;
+      panX = e.clientX - panStartX;
+      panY = e.clientY - panStartY;
+      applyCanvasTransform();
+    });
+
+    window.addEventListener('mouseup', () => {
+      isPanning = false;
+      space.style.cursor = 'crosshair';
+    });
+
+    viewport.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const zoomFactor = e.deltaY < 0 ? 0.06 : -0.06;
+      adjustZoom(zoomFactor);
+    }, { passive: false });
+
+    function adjustZoom(delta) {
+      zoomLevel = Math.min(1.8, Math.max(0.6, zoomLevel + delta));
+      document.getElementById('canvasZoomPercent').innerText = `${Math.round(zoomLevel * 100)}%`;
+      document.getElementById('canvasZoomLabel').innerText = `ZOOM: ${Math.round(zoomLevel * 100)}%`;
+      applyCanvasTransform();
+      updateAllWires();
+    }
+
+    function resetCanvasTransform() {
+      zoomLevel = 1.0;
+      panX = 0;
+      panY = 0;
+      document.getElementById('canvasZoomPercent').innerText = "100%";
+      document.getElementById('canvasZoomLabel').innerText = "ZOOM: 100%";
+      applyCanvasTransform();
+      updateAllWires();
+    }
+
+    function applyCanvasTransform() {
+      space.style.transform = `translate(${panX}px, ${panY}px) scale(${zoomLevel})`;
+    }
+
+    // 9. Telemetry Terminal Logger
+    function appendLog(msg, type = "normal") {
+      const feed = document.getElementById("consoleLogFeed");
+      const div = document.createElement("div");
+      const time = new Date().toLocaleTimeString();
+      let color = "text-neutral-300";
+      if (type === "ok") color = "text-[var(--accent)] font-bold";
+      else if (type === "err") color = "text-[var(--danger)] font-bold";
+      else if (type === "warn") color = "text-amber-400";
+      else if (type === "cyan") color = "text-[var(--secondary)]";
+
+      div.className = color;
+      div.innerText = `[${time}] ${msg}`;
+      feed.appendChild(div);
+      feed.scrollTop = feed.scrollHeight;
+    }
+
+    function clearConsoleLogs() {
+      document.getElementById("consoleLogFeed").innerHTML = '<div class="text-neutral-500">// Terminal log buffer cleared. Engine standing by.</div>';
+    }
+
+    // 10. Flow Simulator with Bezier Pulse Electrons
+    function animatePulseAlongPath(pathId, pulseId, callback) {
+      const path = document.getElementById(pathId);
+      const pulse = document.getElementById(pulseId);
+      if (!path || !pulse) return;
+
+      pulse.classList.remove('hidden');
+      const length = path.getTotalLength();
+      let progress = 0;
+      const speed = 0.038;
+
+      function step() {
+        progress += speed;
+        if (progress > 1) {
+          pulse.classList.add('hidden');
+          if (callback) callback();
+          return;
+        }
+        const point = path.getPointAtLength(progress * length);
+        pulse.setAttribute('cx', point.x);
+        pulse.setAttribute('cy', point.y);
+        requestAnimationFrame(step);
+      }
+      requestAnimationFrame(step);
+    }
+
+    async function simulateExecution() {
+      if (isSimulating) return;
+      isSimulating = true;
+      const statusLabel = document.getElementById('globalPipelineStatus');
+      statusLabel.innerText = "EXECUTING // SIMULATION ACTIVE";
+      statusLabel.className = "text-[var(--secondary)] font-bold";
+
+      appendLog("Initiating Node 1: Trigger Matrix dispatch...", "cyan");
+      document.getElementById('path_1_2').className = "cable-path cable-active";
+
+      animatePulseAlongPath('path_1_2', 'pulse_1', () => {
+        appendLog("Handshake OK: Node 1 -> Node 2 received trigger payload.", "ok");
+        
+        if (hasInjectedError) {
+          setTimeout(() => {
+            appendLog("EXCEPTION in Node 2: 429 ResourceExhausted (Free Tier Quota Hit) on model: gemini-3.8-flash", "err");
+            document.getElementById('path_1_2').className = "cable-path cable-idle";
+            document.getElementById('path_2_6').className = "cable-path cable-error";
+            
+            const n2 = document.getElementById('node2');
+            n2.classList.add('faulted');
+            document.getElementById('node2_status').innerText = "ERROR 429";
+            document.getElementById('node2_status').className = "text-[9px] font-mono px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/50 font-bold";
+
+            const healerBox = document.getElementById('healerTelemetryBox');
+            healerBox.className = "bg-rose-950/40 border border-rose-500 p-2.5 rounded-xl font-mono text-[10px] space-y-1 mb-3";
+            document.getElementById('healerStateText').innerHTML = "<strong class='text-rose-400'>FAULT INTERCEPTED:</strong> Quota exhausted. Recommended AST patch to 1500 req/day 'gemini-2.5-flash'.";
+            
+            const btnHeal = document.getElementById('btnAutoHeal');
+            btnHeal.disabled = false;
+            btnHeal.className = "w-full py-2.5 px-3 rounded-xl text-white font-mono text-xs font-bold transition flex items-center justify-center gap-1.5 animate-bounce shadow-lg cursor-pointer" + " bg-[var(--danger)]";
+            
+            statusLabel.innerText = "FAULT DETECTED // AUTO-HEAL READY";
+            statusLabel.className = "text-[var(--danger)] font-bold";
+            isSimulating = false;
+          }, 800);
+          return;
+        }
+
+        // Happy Path Simulation
+        appendLog("Node 2: Gemini generating 800-word silicon intel dispatch + structured JSON...", "cyan");
+        document.getElementById('path_2_3').className = "cable-path cable-active";
+        document.getElementById('path_2_4').className = "cable-path cable-active";
+
+        animatePulseAlongPath('path_2_3', 'pulse_2');
+        animatePulseAlongPath('path_2_4', 'pulse_3', () => {
+          appendLog("Node 3 (Playwright): Captured 1080x1350 editorial card (final_card.png).", "ok");
+          appendLog("Node 4 (Repo Commit): Static HTML deployed to articles/die-to-die-optics.html", "ok");
+
+          document.getElementById('path_3_5').className = "cable-path cable-active";
+          document.getElementById('path_4_5').className = "cable-path cable-active";
 
           setTimeout(() => {
-            setCableState('wire-3-5', '');
-            setCableState('wire-4-5', '');
-            setCableState('wire-7-5', '');
-            setCableState('wire-4-9', '');
-            setNodeState(5, 'idle');
-            setNodeState(9, 'idle');
-          }, 1500);
-        }, 1500);
+            appendLog("Node 5 (Telegram): Visual card and quiz poll published to @cultynex_daily!", "ok");
+            document.getElementById('tgGatewayStatus').innerText = "200 OK (BROADCAST)";
+            statusLabel.innerText = "SUCCESS // ALL NODES NOMINAL";
+            statusLabel.className = "text-[var(--accent)] font-bold";
+
+            setTimeout(() => {
+              document.querySelectorAll('.cable-path').forEach(w => w.className = "cable-path cable-idle");
+              isSimulating = false;
+            }, 3000);
+          }, 1200);
+        });
+      });
+    }
+
+    // 11. Error Injection Engine
+    function toggleErrorInjection() {
+      hasInjectedError = !hasInjectedError;
+      const btn = document.getElementById('btnInjectError');
+      if (hasInjectedError) {
+        btn.classList.add('border-rose-500', 'text-rose-400', 'bg-rose-500/10');
+        appendLog("FAULT INJECTION ACTIVE: Pipeline will simulate 429 quota failure on next execution.", "warn");
+      } else {
+        btn.classList.remove('border-rose-500', 'text-rose-400', 'bg-rose-500/10');
+        appendLog("Fault injection disabled. Pipeline returned to standard nominal execution.", "cyan");
+      }
+    }
+
+    // 12. AI Self-Healing AST Engine
+    function executeAutoHeal() {
+      appendLog("AI Sentry initializing AST patch generator...", "cyan");
+      appendLog("Inspecting bot.py traceback: Rerouting model priority queue to [gemini-2.5-flash, gemini-1.5-flash]...", "warn");
+      
+      const btn = document.getElementById('btnAutoHeal');
+      btn.innerText = "APPLYING CODE PATCH...";
+      btn.disabled = true;
+
+      setTimeout(() => {
+        appendLog("DIFF APPLIED: Replaced deprecated model identifier with verified Free-Tier 1500 req/day quota models.", "ok");
+        appendLog("Commit hash 9a41f8c merged into main. Pipeline healed.", "ok");
+        
+        hasInjectedError = false;
+        document.getElementById('btnInjectError').classList.remove('border-rose-500', 'text-rose-400', 'bg-rose-500/10');
+        document.getElementById('path_2_6').className = "cable-path cable-idle";
+        document.getElementById('path_6_2').className = "cable-path cable-active";
+
+        const n2 = document.getElementById('node2');
+        n2.classList.remove('faulted');
+        document.getElementById('node2_status').innerText = "REPAIRED V2.5";
+        document.getElementById('node2_status').className = "text-[9px] font-mono px-1.5 py-0.5 rounded border font-bold" + " text-[var(--accent)] border-[var(--accent)] bg-black/40";
+        document.getElementById('activeModelLabel').innerText = "gemini-2.5-flash (Healed)";
+
+        const healerBox = document.getElementById('healerTelemetryBox');
+        healerBox.className = "bg-black/50 border border-white/5 p-2.5 rounded-xl font-mono text-[10px] space-y-1 mb-3";
+        document.getElementById('healerStateText').innerText = "✓ Patch successful. Autonomous code health restored.";
+        
+        btn.innerText = "✓ CODE REPAIRED & SYNCED";
+        btn.className = "w-full py-2.5 px-3 rounded-xl bg-neutral-900 border text-[var(--accent)] font-mono text-xs font-bold border-[var(--accent)]";
+
+        document.getElementById('globalPipelineStatus').innerText = "READY // SELF-HEALED";
+        document.getElementById('globalPipelineStatus').className = "text-[var(--accent)] font-bold";
+
+        setTimeout(() => {
+          document.getElementById('path_6_2').className = "cable-path cable-idle";
+        }, 2000);
       }, 1500);
-    }, 1000);
-  }
+    }
 
-  function setNodeState(id, state) {
-    const node = document.getElementById(`node-${id}`);
-    const dot = document.getElementById(`dot-${id}`);
-    if (node) node.className = `node ${state}`;
-    if (dot) dot.className = `status-dot ${state}`;
-  }
+    // 13. Live GitHub Actions REST Dispatch
+    function openDeployModal() { document.getElementById('deployModal').classList.remove('hidden'); }
+    function closeDeployModal() { document.getElementById('deployModal').classList.add('hidden'); }
 
-  function setCableState(id, state) {
-    const cable = document.getElementById(id);
-    if (cable) cable.className = `cable ${state}`;
-  }
+    async function dispatchLiveWorkflow() {
+      const token = document.getElementById('ghPatInput').value.trim();
+      const statusBox = document.getElementById('deployStatusBox');
+      const btn = document.getElementById('btnLiveDispatch');
 
-  function resetStates() {
-    [1,2,3,4,5,6,7,8,9].forEach(i => setNodeState(i, 'idle'));
-    document.querySelectorAll('.cable').forEach(c => c.className = 'cable');
-  }
+      if (!token) {
+        statusBox.className = "p-3 rounded-xl bg-rose-950/40 border border-rose-500 text-rose-300 font-mono text-[11px]";
+        statusBox.innerText = "Error: GitHub Personal Access Token (PAT) is required.";
+        statusBox.classList.remove('hidden');
+        return;
+      }
 
-  function openDeployModal() { document.getElementById('deploy-modal').style.display = 'flex'; }
-  function closeDeployModal() { document.getElementById('deploy-modal').style.display = 'none'; }
+      localStorage.setItem("c_gh_token", token);
+      btn.disabled = true;
+      btn.innerText = "DISPATCHING CLUSTER...";
+      statusBox.className = "p-3 rounded-xl bg-black border border-neutral-700 text-[var(--secondary)] font-mono text-[11px]";
+      statusBox.innerText = `Connecting to GitHub API: /repos/${REPO}/actions/workflows/${WORKFLOW_ID}/dispatches...`;
+      statusBox.classList.remove('hidden');
 
-  async function triggerGitHubAction() {
-    const token = document.getElementById('patToken').value.trim();
-    if (!token) return alert("Provide GitHub Token!");
-    localStorage.setItem("c_gh_token", token);
-    closeDeployModal();
-    simulateFullWorkflow();
+      appendLog(`Dispatching remote run on repository: ${REPO}...`, "warn");
 
-    await fetch(`https://api.github.com/repos/realmrajaysingh-dev/telegram-commuter-bot/actions/workflows/daily_bot.yml/dispatches`, {
-      method: "POST",
-      headers: { "Accept": "application/vnd.github+json", "Authorization": `Bearer ${token}` },
-      body: JSON.stringify({ ref: "main" })
+      try {
+        const res = await fetch(`https://api.github.com/repos/${REPO}/actions/workflows/${WORKFLOW_ID}/dispatches`, {
+          method: "POST",
+          headers: {
+            "Accept": "application/vnd.github+json",
+            "Authorization": `Bearer ${token}`
+          },
+          body: JSON.stringify({ ref: "main" })
+        });
+
+        if (res.status === 204) {
+          statusBox.className = "p-3 rounded-xl bg-emerald-950/40 border border-emerald-500 text-emerald-300 font-mono text-[11px]";
+          statusBox.innerHTML = `<strong>✓ DISPATCH SUCCESS:</strong> GitHub runner engaged! Full intelligence card arriving on Telegram & web in ~1-2 min.`;
+          appendLog("WORKFLOW TRIGGERED (204 No Content). Cloud runner active.", "ok");
+          btn.innerText = "✓ DISPATCH SENT";
+          setTimeout(() => {
+            closeDeployModal();
+            btn.disabled = false;
+            btn.innerText = "⚡ TRIGGER RUN VIA GITHUB ACTIONS";
+          }, 2000);
+        } else {
+          const errData = await res.json().catch(() => ({}));
+          statusBox.className = "p-3 rounded-xl bg-rose-950/40 border border-rose-500 text-rose-300 font-mono text-[11px]";
+          statusBox.innerText = `GitHub API Error (${res.status}): ${errData.message || "Invalid Token Scope"}`;
+          appendLog(`GitHub API Failure: ${res.status} - ${errData.message}`, "err");
+          btn.disabled = false;
+          btn.innerText = "RETRY DISPATCH";
+        }
+      } catch (err) {
+        statusBox.className = "p-3 rounded-xl bg-rose-950/40 border border-rose-500 text-rose-300 font-mono text-[11px]";
+        statusBox.innerText = "Network Error: " + err.message;
+        appendLog("Network Error: " + err.message, "err");
+        btn.disabled = false;
+        btn.innerText = "RETRY DISPATCH";
+      }
+    }
+
+    // 14. Modular Chassis Blueprint Exporter
+    const CHASSIS_CONFIG = {
+      framework: "CULTYNEX_NODE_CHASSIS",
+      version: "4.2.0",
+      theme: "adaptive-multi-palette",
+      total_catalog_tools: 30,
+      active_pipeline_nodes: [
+        { id: "node1", name: "TRIGGER MATRIX", cron: "0 3,11 * * *" },
+        { id: "node2", name: "GEMINI INTELLIGENCE BRAIN", quota_free: true },
+        { id: "node3", name: "PLAYWRIGHT VISUAL CORE", dims: "1080x1350" },
+        { id: "node4", name: "REPO COMMIT & PAGES CDN", path: "articles/" },
+        { id: "node5", name: "TELEGRAM BROADCASTER", channel: "@cultynex_daily" },
+        { id: "node6", name: "AI SENTRY SELF-HEALER", auto_patch: true }
+      ]
+    };
+
+    function toggleExportDrawer() {
+      const drawer = document.getElementById('exportDrawer');
+      drawer.classList.toggle('translate-x-full');
+      document.getElementById('exportJsonArea').value = JSON.stringify(CHASSIS_CONFIG, null, 2);
+      document.getElementById('exportEmbedInput').value = `<iframe src="${window.location.href}" width="100%" height="800" frameborder="0"></iframe>`;
+    }
+
+    function copyExportJson() {
+      const area = document.getElementById('exportJsonArea');
+      area.select();
+      document.execCommand('copy');
+      appendLog("Chassis blueprint JSON copied to clipboard!", "ok");
+    }
+
+    function copyEmbedCode() {
+      const inp = document.getElementById('exportEmbedInput');
+      inp.select();
+      document.execCommand('copy');
+      appendLog("Iframe embed tag copied to clipboard!", "ok");
+    }
+
+    function downloadChassisConfigFile() {
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(CHASSIS_CONFIG, null, 2));
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.setAttribute("href", dataStr);
+      downloadAnchor.setAttribute("download", "cultynex-chassis-blueprint.json");
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+      appendLog("Downloaded cultynex-chassis-blueprint.json file.", "ok");
+    }
+
+    // 15. Initial Load Setup
+    window.addEventListener('resize', updateAllWires);
+    window.addEventListener('load', () => {
+      setTimeout(updateAllWires, 120);
+      renderToolCatalog('all');
+      appendLog("Orchestration matrix initialized. 3 themes, chassis casing & 30 modular tools ready.", "ok");
     });
-  }
-</script>
-
+  </script>
 </body>
 </html>
