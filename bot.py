@@ -17,10 +17,10 @@ genai.configure(api_key=GEMINI_KEY)
 
 def fetch_tech_dispatch():
     """Generates editorial brief and card metrics via available Gemini model."""
-    working_model = "gemini-1.5-flash"
+    working_model = "gemini-3.8-flash"
     try:
         available = [m.name for m in genai.list_models() if "generateContent" in m.supported_generation_methods]
-        for candidate in ["models/gemini-1.5-flash", "models/gemini-1.5-pro", "models/gemini-pro"]:
+        for candidate in ["models/gemini-3.8-flash", "models/gemini-2.5-flash", "models/gemini-1.5-flash", "models/gemini-pro"]:
             if candidate in available:
                 working_model = candidate
                 break
@@ -28,8 +28,9 @@ def fetch_tech_dispatch():
             if available:
                 working_model = available[0]
     except Exception:
-        working_model = "gemini-1.5-flash"
+        working_model = "gemini-3.8-flash"
 
+    print(f"Using Gemini Model: {working_model}")
     model = genai.GenerativeModel(working_model)
     
     prompt = """
