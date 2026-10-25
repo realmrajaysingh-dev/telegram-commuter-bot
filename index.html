@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Cultynex Studio | Editorial Dispatch Command</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;900&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: #080A0C;
+      color: #E2E8F0;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .mono {
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .cinzel {
+      font-family: 'Cinzel', serif;
+    }
+    .border-subtle {
+      border-color: rgba(255, 255, 255, 0.08);
+    }
+    .bg-pitch {
+      background-color: #0D0F12;
+    }
+    .bg-card {
+      background-color: #12151A;
+    }
+    .accent-red {
+      color: #E53935;
+    }
+    .bg-accent-red {
+      background-color: #E53935;
+    }
+    input, textarea, select {
+      background-color: #0A0C0E !important;
+      border: 1px solid rgba(255, 255, 255, 0.12) !important;
+      color: #F8FAFC !important;
+    }
+    input:focus, textarea:focus, select:focus {
+      border-color: #E53935 !important;
+      outline: none !important;
+      box-shadow: 0 0 0 2px rgba(229, 57, 53, 0.2) !important;
+    }
+    /* Hide scrollbar for tabs */
+    .no-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+    .no-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+  </style>
+</head>
+<body class="min-h-screen pb-16 antialiased selection:bg-red-900 selection:text-white">
+
+  <!-- Top Sticky Navigation -->
+  <header class="sticky top-0 z-40 bg-pitch/90 backdrop-blur-md border-b border-subtle px-4 py-3.5 flex items-center justify-between">
+    <div class="flex items-center space-x-3">
+      <div class="h-3 w-3 rounded-full bg-accent-red animate-pulse"></div>
+      <div class="flex flex-col">
+        <span class="mono text-xs font-bold tracking-widest text-neutral-400 uppercase">Editorial Engine</span>
+        <span class="cinzel text-base font-black tracking-wider text-white">CULTYNEX DISPATCH</span>
+      </div>
+    </div>
+    <button onclick="toggleConfigModal()" class="mono text-xs px-3 py-1.5 rounded-lg border border-subtle bg-neutral-900/80 hover:bg-neutral-800 text-neutral-300 flex items-center space-x-1.5 transition">
+      <svg class="w-3.5 h-3.5 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+      </svg>
+      <span>Settings</span>
+    </button>
+  </header>
+
+  <!-- Main Container -->
+  <main class="max-w-xl mx-auto px-4 pt-5 space-y-5">
+
+    <!-- Status Banner / Connection Status -->
+    <div id="connectionPill" class="flex items-center justify-between p-3 rounded-xl bg-card border border-subtle">
+      <div class="flex items-center space-x-2.5">
+        <div id="statusDot" class="w-2.5 h-2.5 rounded-full bg-amber-500"></div>
+        <span id="statusText" class="mono text-xs text-neutral-300">Checking GitHub configuration...</span>
+      </div>
+      <span class="mono text-[10px] text-neutral-500 uppercase">Cloud Runner</span>
+    </div>
+
+    <!-- Quick Mode Toggle -->
+    <div class="grid grid-cols-2 gap-2 p-1 bg-card rounded-xl border border-subtle text-xs mono font-semibold">
+      <button id="btnModeAuto" onclick="setMode('auto')" class="py-2.5 rounded-lg text-center bg-accent-red text-white transition shadow-sm">
+        ⚡ 100% Autonomous AI
+      </button>
+      <button id="btnModeCustom" onclick="setMode('custom')" class="py-2.5 rounded-lg text-center text-neutral-400 hover:text-white transition">
+        ✍️ Custom Input / Link
+      </button>
+    </div>
+
+    <!-- Main Command Card -->
+    <div class="bg-card rounded-2xl border border-subtle p-5 shadow-2xl space-y-4">
+      
+      <!-- Autonomous Mode Info Box -->
+      <div id="autoModeContainer" class="space-y-3">
+        <div class="p-4 rounded-xl bg-neutral-900/60 border border-neutral-800">
+          <div class="flex items-center space-x-2 text-accent-red mb-1">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+            </svg>
+            <span class="mono text-xs font-bold uppercase tracking-wider">Zero-Touch Automation</span>
+          </div>
+          <p class="text-xs text-neutral-400 leading-relaxed">
+            Gemini AI will autonomously scan high-impact global semiconductor, silicon computing, and AI infrastructure breakthroughs, format the editorial analysis, generate the dark card graphic, and post the live quiz.
+          </p>
+        </div>
+      </div>
+
+      <!-- Custom Mode Fields (Hidden by default) -->
+      <div id="customModeContainer" class="hidden space-y-4">
+        
+        <div>
+          <label class="block mono text-[11px] font-semibold text-neutral-300 uppercase mb-1.5 tracking-wider">
+            Headline / Core Topic (or Source Link)
+          </label>
+          <input type="text" id="inputTopic" placeholder="e.g., TSMC 2nm Nanosheet Transition Yields 35% Gain" class="w-full text-sm px-3.5 py-2.5 rounded-xl font-normal transition placeholder:text-neutral-600">
+        </div>
+
+        <div>
+          <label class="block mono text-[11px] font-semibold text-neutral-300 uppercase mb-1.5 tracking-wider">
+            Raw Research Notes / Analytical Angle (Optional)
+          </label>
+          <textarea id="inputNotes" rows="3" placeholder="Key data points, why it matters, macro implication, or paste a tweet URL..." class="w-full text-sm px-3.5 py-2.5 rounded-xl transition placeholder:text-neutral-600"></textarea>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block mono text-[11px] font-semibold text-neutral-300 uppercase mb-1.5 tracking-wider">
+              Custom Image URL (Optional)
+            </label>
+            <input type="url" id="inputImageUrl" placeholder="https://..." class="w-full text-sm px-3.5 py-2.5 rounded-xl transition placeholder:text-neutral-600">
+          </div>
+          <div>
+            <label class="block mono text-[11px] font-semibold text-neutral-300 uppercase mb-1.5 tracking-wider">
+              X Handle / Analyst Quote
+            </label>
+            <input type="text" id="inputQuote" placeholder="@TechAnalyst" class="w-full text-sm px-3.5 py-2.5 rounded-xl transition placeholder:text-neutral-600">
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Primary Action Trigger Button -->
+      <button id="btnDispatch" onclick="triggerWorkflow()" class="w-full py-4 px-6 rounded-xl bg-accent-red hover:bg-red-600 active:scale-[0.98] transition font-bold text-white flex items-center justify-center space-x-2.5 shadow-lg shadow-red-950/40">
+        <svg id="btnIcon" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
+        </svg>
+        <span id="btnLabel" class="text-sm font-semibold tracking-wide uppercase">Broadcast Dispatch Now</span>
+      </button>
+
+      <!-- Alert / Status message box -->
+      <div id="responseBox" class="hidden p-3.5 rounded-xl border text-xs mono transition-all"></div>
+
+    </div>
+
+    <!-- Realtime Card Preview Frame -->
+    <div class="bg-card rounded-2xl border border-subtle p-4 space-y-3">
+      <div class="flex items-center justify-between border-b border-subtle pb-2.5">
+        <span class="mono text-xs font-bold text-neutral-300 tracking-wider uppercase">Live Visual Aesthetic</span>
+        <span class="mono text-[10px] text-neutral-500">1080 &times; 1350 Target</span>
+      </div>
+
+      <div class="rounded-xl border border-neutral-800 bg-black p-4 space-y-3">
+        <div class="flex items-center justify-between">
+          <span class="text-[9px] font-black uppercase tracking-wider bg-accent-red text-white px-2 py-0.5 rounded">CULTYNEX DISPATCH</span>
+          <span class="mono text-[9px] text-neutral-400">2 MIN READ</span>
+        </div>
+        <div id="previewHeadline" class="cinzel text-sm font-bold text-white uppercase leading-snug">
+          BACKSIDE POWER DELIVERY CRACKS AI SILICON POWER WALL
+        </div>
+        <div class="h-28 w-full rounded-lg bg-neutral-900 border border-neutral-800 overflow-hidden relative">
+          <img id="previewImage" src="https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=600&q=80" alt="Preview" class="w-full h-full object-cover">
+          <div class="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
+        </div>
+        <div class="bg-neutral-900/90 rounded-lg p-2.5 border border-neutral-800 text-[11px] space-y-1">
+          <div class="flex items-center space-x-1.5 font-bold text-white text-[10px]">
+            <span class="w-3.5 h-3.5 rounded-full bg-neutral-700 flex items-center justify-center text-[8px]">X</span>
+            <span>Cultynex Strategy Desk</span>
+          </div>
+          <p id="previewQuote" class="text-neutral-300 text-[10px] leading-tight">
+            High-density cell routing unlocked via dual-sided wafer interconnects.
+          </p>
+        </div>
+        <div class="flex items-center justify-between text-[10px] mono pt-1 border-t border-neutral-800 text-neutral-400">
+          <span class="text-accent-red font-bold">+35% EFFICIENCY</span>
+          <span>TELEGRAM DISPATCH &rarr;</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Recent Dispatches Log -->
+    <div class="bg-card rounded-2xl border border-subtle p-4 space-y-3">
+      <div class="flex items-center justify-between">
+        <span class="mono text-xs font-bold text-neutral-300 tracking-wider uppercase">Trigger History</span>
+        <button onclick="clearHistory()" class="mono text-[10px] text-neutral-500 hover:text-neutral-300">Clear</button>
+      </div>
+      <div id="historyList" class="space-y-2 mono text-xs text-neutral-400">
+        <div class="p-2.5 rounded-lg bg-neutral-900/50 border border-neutral-800/80 text-[11px] text-neutral-500">
+          No dispatches triggered yet from this device.
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- GitHub Settings Modal -->
+  <div id="configModal" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center p-4">
+    <div class="bg-pitch border border-subtle w-full max-w-md rounded-2xl p-5 space-y-4 shadow-2xl">
+      <div class="flex items-center justify-between border-b border-subtle pb-3">
+        <div class="flex items-center space-x-2">
+          <span class="h-2 w-2 rounded-full bg-accent-red"></span>
+          <h3 class="mono text-sm font-bold text-white uppercase tracking-wider">GitHub API Bridge</h3>
+        </div>
+        <button onclick="toggleConfigModal()" class="text-neutral-400 hover:text-white">&times;</button>
+      </div>
+
+      <p class="text-xs text-neutral-400 leading-relaxed">
+        Stored locally on your phone/browser. Never shared. Allows triggering the workflow with a single tap.
+      </p>
+
+      <div class="space-y-3 mono text-xs">
+        <div>
+          <label class="block text-neutral-300 mb-1">GitHub Owner / Username</label>
+          <input type="text" id="cfgOwner" value="realmrajaysingh-dev" class="w-full px-3 py-2 rounded-lg">
+        </div>
+        <div>
+          <label class="block text-neutral-300 mb-1">Repository Name</label>
+          <input type="text" id="cfgRepo" value="telegram-commuter-bot" class="w-full px-3 py-2 rounded-lg">
+        </div>
+        <div>
+          <label class="block text-neutral-300 mb-1">Workflow File Name</label>
+          <input type="text" id="cfgWorkflow" value="daily_bot.yml" class="w-full px-3 py-2 rounded-lg">
+        </div>
+        <div>
+          <label class="block text-neutral-300 mb-1">Personal Access Token (classic / fine-grained)</label>
+          <input type="password" id="cfgToken" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" class="w-full px-3 py-2 rounded-lg">
+          <span class="text-[10px] text-neutral-500 mt-1 block">Requires <code class="text-neutral-400">repo</code> or <code class="text-neutral-400">actions:write</code> scope.</span>
+        </div>
+      </div>
+
+      <div class="flex justify-end space-x-2 pt-2">
+        <button onclick="toggleConfigModal()" class="px-4 py-2 rounded-lg text-xs mono text-neutral-400 hover:text-white">Cancel</button>
+        <button onclick="saveConfig()" class="px-4 py-2 rounded-lg text-xs mono font-bold bg-accent-red text-white hover:bg-red-600 transition">Save & Connect</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // State & Defaults
+    let activeMode = 'auto';
+
+    const DEFAULT_CONFIG = {
+      owner: 'realmrajaysingh-dev',
+      repo: 'telegram-commuter-bot',
+      workflow: 'daily_bot.yml',
+      token: ''
+    };
+
+    function loadConfig() {
+      const saved = localStorage.getItem('cultynex_gh_config');
+      if (saved) {
+        try {
+          return { ...DEFAULT_CONFIG, ...JSON.parse(saved) };
+        } catch (e) {
+          return DEFAULT_CONFIG;
+        }
+      }
+      return DEFAULT_CONFIG;
+    }
+
+    function checkConnection() {
+      const cfg = loadConfig();
+      const dot = document.getElementById('statusDot');
+      const text = document.getElementById('statusText');
+
+      if (!cfg.token) {
+        dot.className = 'w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse';
+        text.innerText = 'Token required. Tap Settings to link GitHub.';
+      } else {
+        dot.className = 'w-2.5 h-2.5 rounded-full bg-emerald-500';
+        text.innerText = `Connected: ${cfg.owner}/${cfg.repo}`;
+      }
+    }
+
+    function toggleConfigModal() {
+      const modal = document.getElementById('configModal');
+      const cfg = loadConfig();
+      
+      document.getElementById('cfgOwner').value = cfg.owner;
+      document.getElementById('cfgRepo').value = cfg.repo;
+      document.getElementById('cfgWorkflow').value = cfg.workflow;
+      document.getElementById('cfgToken').value = cfg.token;
+
+      modal.classList.toggle('hidden');
+    }
+
+    function saveConfig() {
+      const newConfig = {
+        owner: document.getElementById('cfgOwner').value.trim() || DEFAULT_CONFIG.owner,
+        repo: document.getElementById('cfgRepo').value.trim() || DEFAULT_CONFIG.repo,
+        workflow: document.getElementById('cfgWorkflow').value.trim() || DEFAULT_CONFIG.workflow,
+        token: document.getElementById('cfgToken').value.trim()
+      };
+      localStorage.setItem('cultynex_gh_config', JSON.stringify(newConfig));
+      toggleConfigModal();
+      checkConnection();
+      showToast('Settings saved successfully!', 'success');
+    }
+
+    function setMode(mode) {
+      activeMode = mode;
+      const btnAuto = document.getElementById('btnModeAuto');
+      const btnCustom = document.getElementById('btnModeCustom');
+      const autoBox = document.getElementById('autoModeContainer');
+      const customBox = document.getElementById('customModeContainer');
+
+      if (mode === 'auto') {
+        btnAuto.className = 'py-2.5 rounded-lg text-center bg-accent-red text-white transition shadow-sm';
+        btnCustom.className = 'py-2.5 rounded-lg text-center text-neutral-400 hover:text-white transition';
+        autoBox.classList.remove('hidden');
+        customBox.classList.add('hidden');
+      } else {
+        btnCustom.className = 'py-2.5 rounded-lg text-center bg-accent-red text-white transition shadow-sm';
+        btnAuto.className = 'py-2.5 rounded-lg text-center text-neutral-400 hover:text-white transition';
+        customBox.classList.remove('hidden');
+        autoBox.classList.add('hidden');
+      }
+    }
+
+    // Live preview binding
+    document.getElementById('inputTopic').addEventListener('input', (e) => {
+      const val = e.target.value.trim();
+      document.getElementById('previewHeadline').innerText = val || 'BACKSIDE POWER DELIVERY CRACKS AI SILICON POWER WALL';
+    });
+
+    document.getElementById('inputQuote').addEventListener('input', (e) => {
+      const val = e.target.value.trim();
+      document.getElementById('previewQuote').innerText = val || 'High-density cell routing unlocked via dual-sided wafer interconnects.';
+    });
+
+    document.getElementById('inputImageUrl').addEventListener('input', (e) => {
+      const val = e.target.value.trim();
+      if (val.startsWith('http')) {
+        document.getElementById('previewImage').src = val;
+      }
+    });
+
+    function showToast(msg, type = 'info') {
+      const box = document.getElementById('responseBox');
+      box.classList.remove('hidden', 'bg-red-950/60', 'border-red-800', 'text-red-300', 'bg-emerald-950/60', 'border-emerald-800', 'text-emerald-300', 'bg-neutral-900', 'border-neutral-800', 'text-neutral-300');
+      
+      if (type === 'error') {
+        box.classList.add('bg-red-950/60', 'border-red-800', 'text-red-300');
+      } else if (type === 'success') {
+        box.classList.add('bg-emerald-950/60', 'border-emerald-800', 'text-emerald-300');
+      } else {
+        box.classList.add('bg-neutral-900', 'border-neutral-800', 'text-neutral-300');
+      }
+
+      box.innerHTML = msg;
+    }
+
+    async function triggerWorkflow() {
+      const cfg = loadConfig();
+      if (!cfg.token) {
+        toggleConfigModal();
+        showToast('Please insert your GitHub Personal Access Token first.', 'error');
+        return;
+      }
+
+      const btn = document.getElementById('btnDispatch');
+      const btnLabel = document.getElementById('btnLabel');
+      const btnIcon = document.getElementById('btnIcon');
+
+      btn.disabled = true;
+      btn.classList.add('opacity-70', 'cursor-not-allowed');
+      btnLabel.innerText = 'Transmitting to Cloud...';
+      btnIcon.classList.add('animate-spin');
+
+      // Prepare payload
+      const payload = {
+        ref: 'main',
+        inputs: {}
+      };
+
+      if (activeMode === 'custom') {
+        const customTopic = document.getElementById('inputTopic').value.trim();
+        const customNotes = document.getElementById('inputNotes').value.trim();
+        const customImage = document.getElementById('inputImageUrl').value.trim();
+        if (customTopic) payload.inputs.topic = customTopic;
+        if (customNotes) payload.inputs.notes = customNotes;
+        if (customImage) payload.inputs.image_url = customImage;
+      }
+
+      try {
+        const url = `https://api.github.com/repos/${cfg.owner}/${cfg.repo}/actions/workflows/${cfg.workflow}/dispatches`;
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Accept': 'application/vnd.github.v3+json',
+            'Authorization': `token ${cfg.token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(payload)
+        });
+
+        if (res.status === 204) {
+          showToast(`⚡ Workflow Dispatched! Runner is now generating the high-res card and broadcasting to Telegram.`, 'success');
+          recordHistory(activeMode === 'custom' ? (document.getElementById('inputTopic').value.trim() || 'Custom Angle') : 'Full Autonomous Brief');
+        } else {
+          const errData = await res.json().catch(() => ({}));
+          showToast(`Failed [HTTP ${res.status}]: ${errData.message || 'Check token permissions.'}`, 'error');
+        }
+      } catch (err) {
+        showToast(`Network Error: ${err.message}`, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.classList.remove('opacity-70', 'cursor-not-allowed');
+        btnLabel.innerText = 'Broadcast Dispatch Now';
+        btnIcon.classList.remove('animate-spin');
+      }
+    }
+
+    function recordHistory(title) {
+      const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const history = JSON.parse(localStorage.getItem('cultynex_history') || '[]');
+      history.unshift({ title, time: now });
+      if (history.length > 5) history.pop();
+      localStorage.setItem('cultynex_history', JSON.stringify(history));
+      renderHistory();
+    }
+
+    function renderHistory() {
+      const list = document.getElementById('historyList');
+      const history = JSON.parse(localStorage.getItem('cultynex_history') || '[]');
+      if (!history.length) {
+        list.innerHTML = `<div class="p-2.5 rounded-lg bg-neutral-900/50 border border-neutral-800/80 text-[11px] text-neutral-500">No dispatches triggered yet from this device.</div>`;
+        return;
+      }
+      list.innerHTML = history.map(item => `
+        <div class="flex items-center justify-between p-2.5 rounded-lg bg-neutral-900/70 border border-neutral-800 text-[11px]">
+          <span class="text-neutral-200 truncate pr-2">${item.title}</span>
+          <span class="text-accent-red font-semibold shrink-0">${item.time}</span>
+        </div>
+      `).join('');
+    }
+
+    function clearHistory() {
+      localStorage.removeItem('cultynex_history');
+      renderHistory();
+    }
+
+    // Initialize on load
+    window.onload = function() {
+      checkConnection();
+      renderHistory();
+    };
+  </script>
+</body>
+</html>
