@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import random
 import asyncio
 import urllib.parse
 import html
@@ -14,6 +15,18 @@ BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHANNEL_ID")
 
 genai.configure(api_key=GEMINI_KEY)
+
+# Dynamic Tech Vectors for variety
+TECH_DOMAINS = [
+    "Neuromorphic Computing & Brain-Inspired Silicon",
+    "Quantum Advantage & Topological Qubits",
+    "Next-Gen Humanoid Robotics Actuators & Spatial Intelligence",
+    "Hyperscale Nuclear/Geothermal Powered AI Data Centers",
+    "Direct Liquid Immersion Cooling for Exascale Supercomputers",
+    "Open-Source Frontier LLM Architecture & Post-Transformer Attention",
+    "Space-Based Optical Interconnects & Starlink Laser Mesh",
+    "DNA Data Storage & Bio-Silicon Hybrid Chips"
+]
 
 def fetch_tech_dispatch():
     """Generates editorial brief and card metrics via available Gemini model."""
@@ -33,26 +46,31 @@ def fetch_tech_dispatch():
     print(f"Using Gemini Model: {working_model}")
     model = genai.GenerativeModel(working_model)
     
-    prompt = """
+    selected_domain = random.choice(TECH_DOMAINS)
+    random_seed = random.randint(1000, 9999)
+    
+    prompt = f"""
     You are the Lead Tech & Macro Strategist for CULTYNEX MEDIA NETWORK.
-    Generate a high-authority editorial news brief on a major trending Tech/Silicon/AI breakthrough.
+    Focus strictly on this domain: {selected_domain}.
+    Generate an entirely fresh, highly-authoritative editorial intelligence brief on a groundbreaking innovation.
+    Seed: {random_seed} (ensure uniqueness, never repeat recent topics).
 
     OUTPUT ONLY VALID JSON:
-    {
+    {{
       "tag": "CULTYNEX DISPATCH",
       "read_time": "2 MIN READ",
       "headline": "PUNCHY EDITORIAL HEADLINE IN UPPERCASE (MAX 10 WORDS)",
-      "image_keyword": "technology microchip",
+      "image_keyword": "2-3 precise words for unsplash photo (e.g. quantum server, humanoid robot, laser optics, server farm)",
       "tweet_author": "Tech Analyst",
       "tweet_handle": "@TechAnalyst",
       "tweet_text": "One concise, hard-hitting analytical reaction on market or architecture impact.",
-      "metric_val": "+35%",
-      "metric_label": "ENERGY EFFICIENCY | 2026 ROADMAP",
+      "metric_val": "+42%",
+      "metric_label": "LATENCY REDUCTION | PRODUCTION ROADMAP",
       "telegram_body": "3 crisp editorial bullet points explaining The Big Picture, Key Numbers, and Why It Matters.",
       "quiz_question": "One sharp single-choice question based on this event.",
       "options": ["Correct option", "Wrong option 1", "Wrong option 2", "Wrong option 3"],
       "correct_id": 0
-    }
+    }}
     """
     
     res = model.generate_content(prompt)
@@ -63,11 +81,15 @@ def fetch_tech_dispatch():
     return json.loads(text)
 
 async def render_editorial_card(data):
-    """Fills card_template.html and renders a 1080x1350 PNG via Playwright."""
+    """Fills card_template.html and renders a 1080x1350 PNG via Playwright with dynamic image."""
     with open("card_template.html", "r", encoding="utf-8") as f:
         template = f.read()
     
-    img_url = "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1200&q=80"
+    # Keyword-based dynamic unsplash photo with cache buster
+    raw_kw = data.get("image_keyword", "technology server")
+    clean_kw = urllib.parse.quote(raw_kw)
+    rand_id = random.randint(1, 10000)
+    img_url = f"https://source.unsplash.com/1200x800/?{clean_kw}&sig={rand_id}"
     
     html_content = template
     html_content = html_content.replace("{{TAG}}", data.get("tag", "CULTYNEX DISPATCH"))
@@ -87,7 +109,7 @@ async def render_editorial_card(data):
         browser = await p.chromium.launch()
         page = await browser.new_page(viewport={"width": 1080, "height": 1350})
         await page.goto(f"file://{os.path.abspath('rendered_card.html')}")
-        await page.wait_for_timeout(1500)
+        await page.wait_for_timeout(2000)
         await page.screenshot(path="final_card.png")
         await browser.close()
 
