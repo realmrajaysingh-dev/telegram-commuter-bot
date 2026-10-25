@@ -59,13 +59,12 @@ LEAD_MAGNETS = [
 ]
 
 def generate_with_fallback(prompt):
-    """Automatically queries Google AI Studio for active text models on this key."""
     active_models = []
     try:
         for m in genai.list_models():
             if "generateContent" in m.supported_generation_methods:
                 active_models.append(m.name)
-        print(f"Discovered {len(active_models)} available models on account.")
+        print(f"Discovered {len(active_models)} available models.")
     except Exception as e:
         print("Model discovery error:", e)
 
@@ -258,10 +257,10 @@ def send_telegram(data, direct_article_url):
         ]
     }
     
-    # 1. Post Visual Card Photo + Caption + Buttons
+    telegram_photo_api = f"[https://api.telegram.org/bot](https://api.telegram.org/bot){BOT_TOKEN}/sendPhoto"
     with open("final_card.png", "rb") as photo:
         r_photo = requests.post(
-            f"[https://api.telegram.org/bot](https://api.telegram.org/bot){BOT_TOKEN}/sendPhoto",
+            telegram_photo_api,
             data={
                 "chat_id": CHAT_ID,
                 "caption": caption,
@@ -273,9 +272,9 @@ def send_telegram(data, direct_article_url):
         print("Telegram SendPhoto:", r_photo.status_code)
         r_photo.raise_for_status()
 
-    # 2. Quiz Poll with explanation
+    telegram_poll_api = f"[https://api.telegram.org/bot](https://api.telegram.org/bot){BOT_TOKEN}/sendPoll"
     r_poll = requests.post(
-        f"[https://api.telegram.org/bot](https://api.telegram.org/bot){BOT_TOKEN}/sendPoll",
+        telegram_poll_api,
         json={
             "chat_id": CHAT_ID,
             "question": f"🎯 {data['quiz_question'][:255]}",
