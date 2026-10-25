@@ -50,7 +50,7 @@
 | D02-R05 | Public-Records Researcher — locate official filings, datasets, and notices | D02-R01 | V1: originating agency, record ID, date, and extraction notes |
 | D02-R06 | Expert Interview Researcher — prepare interview targets and questions | D02-R01, D01-R13 | V1: identity/consent and quote provenance; no invented interview |
 | D02-R07 | Source Reliability Analyst — document source track record and constraints | D02-R03 | V1: reliability rationale and conflict disclosure |
-| D02-R08 | Claim Extractor — identify verifiable claims in drafts and sources | D02-R03, D03-R03 | V1: claim ledger coverage and source links |
+| D02-R08 | Claim Extractor — identify verifiable claims in drafts and sources | D02-R03 | V1: claim ledger coverage and source links |
 | D02-R09 | Claim-to-Source Mapper — map each material claim to evidence | D02-R08, D02-R03 | V1: every material claim has traceable support or is flagged |
 | D02-R10 | Independent Corroboration Researcher — seek distinct supporting evidence | D02-R09, D02-R03 | V1: independent source lineage and conflicting findings retained |
 | D02-R11 | Contradiction Analyst — surface conflict, uncertainty, and counterevidence | D02-R09, D02-R10 | V1: dispute log and resolution/qualification recommendation |
@@ -87,7 +87,7 @@
 | D03-R17 | Technical Review Writer — explain engineering claims without overstatement | D02-R04, D02-R12, D03-R03 | V1+V2: specialist terminology and uncertainty review |
 | D03-R18 | Article Localization Handoff Editor — prepare translation-ready source | D03-R09, D08-R01 | V1+V2: locked facts, terms, names, and translatable strings |
 | D03-R19 | News Package Producer — assemble article, metadata, assets, evidence | D03-R13, D05-R20, D09-R20 | V1+V2+V3: manifest completeness and hash |
-| D03-R20 | Independent Article Quality Reviewer — final independent review | D03-R19, D04-R20 | V4: artifact hash, all gates, dissent and destination readiness |
+| D03-R20 | Independent Article Quality Reviewer — final independent review | D03-R19 | V4: artifact hash, all gates, dissent and destination readiness |
 
 ## D04 — Monthly digital magazine (20)
 
@@ -112,7 +112,7 @@
 | D04-R17 | Issue Metadata Editor — manage issue identifiers and metadata | D04-R12 | V3: manifest consistency and metadata validation |
 | D04-R18 | Magazine Production Tester — inspect final bundle across devices | D04-R12, D04-R14 | V3: reproducible render/device checklist |
 | D04-R19 | Issue Release Packager — hash and bundle approved issue files | D04-R17, D04-R18, D04-R16 | V3: file inventory, checksums, no missing evidence |
-| D04-R20 | Independent Issue Quality Reviewer — inspect complete issue | D04-R19, D03-R20 | V4: independent issue-wide review and hash-bound recommendation |
+| D04-R20 | Independent Issue Quality Reviewer — inspect complete issue | D04-R19 | V4: independent issue-wide review and hash-bound recommendation |
 
 ## D05 — Documentary and short-form production (20)
 
@@ -156,7 +156,7 @@
 | D06-R11 | Brand Voice Editor — check approved voice and terminology | D01-R03, D06-R03 | V2: voice guide and change notes |
 | D06-R12 | CTA and Offer Editor — validate calls-to-action and offer terms | D06-R01, D01-R15 | V2+Ops: destination and offer terms verified |
 | D06-R13 | Social Asset Producer — package image/video variants | D07-R19, D09-R20 | V3: hashes, sizes, crops, license references |
-| D06-R14 | Campaign Localization Coordinator — plan localized variants | D08-R01, D06-R01 | V2: language, market, deadline and reviewer assigned |
+| D06-R14 | Campaign Localization Coordinator — plan localized variants | D06-R01 | V2: language, market, deadline and reviewer assigned |
 | D06-R15 | Marketing Disclosure Reviewer — check sponsorship and promotional disclosure | D01-R15, D06-R12 | V2+Ops: disclosure present and correctly placed |
 | D06-R16 | Campaign Performance Analyst — report measured campaign outcomes | D06-R02, D11-R17 | Ops: metric source, attribution limits, privacy aggregation |
 | D06-R17 | Social Listening Researcher — categorize relevant public signals | D06-R08, D01-R13 | Ops: source, time window, privacy minimization |
@@ -173,12 +173,12 @@
 | D07-R03 | Character Designer — develop original character concepts | D07-R01 | V2+V3: brief fit, originality review, asset provenance |
 | D07-R04 | Costume Designer — design production costume concepts | D07-R03, D07-R01 | V2+V3: character continuity, materials and rights |
 | D07-R05 | Graphic Designer — create static editorial graphics | D07-R01, D02-R12 | V1+V2+V3: data source, legibility, export and rights |
-| D07-R06 | Motion Designer — design motion systems and explainers | D07-R01, D05-R13 | V1+V2+V3: timing, evidence, export tests |
+| D07-R06 | Motion Designer — design motion systems and explainers | D07-R01 | V1+V2+V3: timing, evidence, export tests |
 | D07-R07 | Infographic Designer — translate verified data to visuals | D02-R12, D07-R05 | V1+V3: source, scale, units, labels, accessibility |
 | D07-R08 | Cover and Thumbnail Designer — create discoverable packaging | D07-R01, D03-R06 | V1+V2+V3: no misleading imagery/headline, crop checks |
 | D07-R09 | Brand Systems Designer — maintain reusable identity assets | D01-R03, D07-R01 | V2+V3: versioned tokens, license and use guide |
 | D07-R10 | Layout Designer — arrange editorial pages and cards | D04-R11, D07-R05 | V3: dimensions, reading order, responsive output |
-| D07-R11 | Publication Artworker — prepare final production artwork | D07-R10, D09-R20 | V3: preflight, fonts, embedded/linked asset records |
+| D07-R11 | Publication Artworker — prepare final production artwork | D07-R10 | V3: preflight, fonts, embedded/linked asset records |
 | D07-R12 | Visual Researcher — source visual references and context | D02-R01, D09-R01 | V1+V3: source provenance and no implied license |
 | D07-R13 | Accessibility Visual Reviewer — review contrast and visual access | D07-R05, D07-R10 | V3: contrast, text alternatives, non-color cues |
 | D07-R14 | Visual Continuity Supervisor — track characters/props across scenes | D07-R03, D07-R04, D05-R09 | V2+V3: continuity sheet and approved changes |
@@ -186,14 +186,14 @@
 | D07-R16 | Design QA Specialist — inspect final visual artifacts | D07-R11, D07-R13 | V3: independent render checklist and hash |
 | D07-R17 | Image Integrity Reviewer — detect misleading edits or synthetic imagery risks | D07-R05, D09-R20 | V1+V3: edit provenance, label/disclosure decision |
 | D07-R18 | Typography and Localization Designer — validate script/font coverage | D08-R02, D07-R10 | V3: glyph coverage, line breaks, legibility per locale |
-| D07-R19 | Multi-Format Asset Adapter — export approved crops and aspect ratios | D07-R16, D06-R13 | V3: dimensions, crop safety, source hash mapping |
+| D07-R19 | Multi-Format Asset Adapter — export approved crops and aspect ratios | D07-R16 | V3: dimensions, crop safety, source hash mapping |
 | D07-R20 | Independent Visual Quality Reviewer — inspect final visual package | D07-R16, D09-R20 | V4: final hash, rights evidence, destination fit |
 
 ## D08 — Multilingual scripts, dubbing, subtitles, and accessibility (20)
 
 | ID | Functional role and responsibility | Depends on | Verification requirement |
 |---|---|---|---|
-| D08-R01 | Localization Program Planner — scope locales and review capacity | D01-R04, D06-R14 | Ops+V2: locale, audience, reviewer, source version |
+| D08-R01 | Localization Program Planner — scope locales and review capacity | D01-R04 | Ops+V2: locale, audience, reviewer, source version |
 | D08-R02 | Translator — translate approved source material | D03-R18, D08-R01 | V1+V2: source alignment, terminology, translator record |
 | D08-R03 | Translation Editor — review fluency and meaning | D08-R02 | V1+V2: bilingual review and change log |
 | D08-R04 | Localization Fact Checker — compare translated claims to evidence | D02-R20, D08-R03 | V1: names, numbers, dates, qualifiers preserved |
@@ -219,11 +219,11 @@
 | ID | Functional role and responsibility | Depends on | Verification requirement |
 |---|---|---|---|
 | D09-R01 | Asset Intake Steward — record asset identity, source, owner, and location | D01-R13 | Ops: checksum, access class, owner and intake record |
-| D09-R02 | Footage Discovery Researcher — find candidate footage and timecodes | D09-R01, D05-R10 | V1+V3: origin/timecode and restrictions flagged |
+| D09-R02 | Footage Discovery Researcher — find candidate footage and timecodes | D09-R01 | V1+V3: origin/timecode and restrictions flagged |
 | D09-R03 | Image Researcher — find candidate stills and illustrations | D09-R01, D07-R12 | V1+V3: source, creator, license inquiry status |
 | D09-R04 | Audio and Music Researcher — find candidate audio/music | D09-R01, D05-R14 | V3: provenance and rights status before use |
 | D09-R05 | License Terms Analyst — interpret documented asset-use terms | D09-R01, D01-R15 | V3: terms, scope, expiry, restrictions and evidence |
-| D09-R06 | Attribution Coordinator — create required credits and placement | D09-R05, D07-R11 | V3: credit text matches source terms |
+| D09-R06 | Attribution Coordinator — create required credits and placement | D09-R05 | V3: credit text matches source terms |
 | D09-R07 | Consent and Release Coordinator — track talent/property releases | D09-R01, D01-R13 | V3: release scope, identity access control, expiry |
 | D09-R08 | License Clearance Reviewer — approve documented permitted use | D09-R05, D09-R06, D09-R07 | V3: independent rights evidence; uncertain status blocks |
 | D09-R09 | Voice and Performance Rights Steward — record voice/performance permissions | D09-R07, D01-R13 | V3: informed consent and permitted use evidence |
@@ -237,7 +237,7 @@
 | D09-R17 | Geographic Rights Reviewer — check territory and distribution limits | D09-R05, D11-R01 | V3: destination territories match license |
 | D09-R18 | Takedown and Rights Incident Coordinator — handle disputed or revoked assets | D09-R14, D01-R10 | Ops+V3: hold, preserve evidence, escalate, replacement decision |
 | D09-R19 | Asset Manifest Producer — map all media to rights and artifact use | D09-R08, D09-R11, D09-R17 | V3: every included asset has status and usage record |
-| D09-R20 | Independent Asset Rights Reviewer — verify final project asset bundle | D09-R19, D07-R20 | V3+V4: independent clearance; no unknown rights in release |
+| D09-R20 | Independent Asset Rights Reviewer — verify final project asset bundle | D09-R19 | V3+V4: independent clearance; no unknown rights in release |
 
 ## D10 — Production engineering and infrastructure (20)
 
