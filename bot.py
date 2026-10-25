@@ -16,26 +16,22 @@ CHAT_ID = os.getenv("TELEGRAM_CHANNEL_ID")
 genai.configure(api_key=GEMINI_KEY)
 
 TECH_DOMAINS = [
-    "Silicon Photonics & Optical Interconnect Acceleration",
-    "Sub-2nm Gate-All-Around (GAA) & Backside Power Architecture",
-    "High-NA EUV Lithography & Angstrom-Era Semiconductor Foundries",
-    "Neuromorphic Silicon & Analog In-Memory Edge AI",
-    "Quantum Advantage with Superconducting Qubits & Topological Braiding",
-    "Exascale Liquid Immersion Supercomputing & Geothermal Data Infrastructure",
-    "Humanoid Spatial Intelligence & High-Torque Brushless Actuators",
-    "Orbital Laser Cross-Links & Low-Earth Photonic Mesh Networks"
+    "Silicon Photonics & Co-Packaged Optics in AI Clusters",
+    "Analog In-Memory Computing & Neuromorphic Crossbar Arrays",
+    "Sub-1.4nm Angstrom Lithography & High-NA EUV Scanner Limits",
+    "Superconducting Transmon Qubits & Quantum Error Correction",
+    "Direct Immersion Liquid Cooling in Multi-Megawatt AI Data Centers",
+    "High-Density 3D Hybrid Wafer Stacking & Die-to-Die Interconnects"
 ]
 
-# Curated, guaranteed-active 4K/UHD Deep Tech images
-PREMIUM_TECH_IMAGES = [
-    "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1400&q=85",
-    "https://images.unsplash.com/photo-1629654297299-c8506221ca97?auto=format&fit=crop&w=1400&q=85",
-    "https://images.unsplash.com/photo-1550751827-4bd374c3f58b?auto=format&fit=crop&w=1400&q=85",
-    "https://images.unsplash.com/photo-1517420704952-d9f39e95b43e?auto=format&fit=crop&w=1400&q=85",
-    "https://images.unsplash.com/photo-1504384308090-c894fdcc538d?auto=format&fit=crop&w=1400&q=85",
-    "https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=1400&q=85",
-    "https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=1400&q=85",
-    "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=1400&q=85"
+# Strictly ultra-clean hardware, cleanrooms, and silicon wafers
+CURATED_SILICON_IMAGES = [
+    "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1400&q=85", # Silicon Microchip Macro
+    "https://images.unsplash.com/photo-1629654297299-c8506221ca97?auto=format&fit=crop&w=1400&q=85", # Optical Interconnect Fiber
+    "https://images.unsplash.com/photo-1550751827-4bd374c3f58b?auto=format&fit=crop&w=1400&q=85", # Cyber Server Rack Matrix
+    "https://images.unsplash.com/photo-1597733336794-12d05021d510?auto=format&fit=crop&w=1400&q=85", # Wafer Fab Inspection
+    "https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=1400&q=85", # High Precision Robotic Arm
+    "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?auto=format&fit=crop&w=1400&q=85"  # Quantum Laser Grid
 ]
 
 def fetch_tech_dispatch():
@@ -53,30 +49,31 @@ def fetch_tech_dispatch():
         working_model = "gemini-3.8-flash"
 
     model = genai.GenerativeModel(working_model)
-    selected_domain = random.choice(TECH_DOMAINS)
-    random_seed = random.randint(10000, 99999)
+    domain = random.choice(TECH_DOMAINS)
+    seed = random.randint(10000, 99999)
     
     prompt = f"""
-    You are the Chief Intelligence Officer at CULTYNEX MEDIA NETWORK.
-    Produce an elite, analytical dispatch on: {selected_domain}.
-    Seed: {random_seed}. Tone: Bloomberg Intelligence meets Wired.
+    You are the Chief Technology Strategist for CULTYNEX MEDIA.
+    Subject: {domain}. Seed: {seed}.
+    Create a high-impact editorial intelligence brief.
 
-    OUTPUT ONLY VALID JSON:
+    OUTPUT ONLY JSON:
     {{
       "tag": "CULTYNEX DISPATCH",
       "read_time": "2 MIN READ",
-      "headline": "SHORT HARD-HITTING UPPERCASE HEADLINE (MAX 8 WORDS)",
+      "headline": "SHORT PUNCHY UPPERCASE HEADLINE (MAX 8 WORDS)",
       "tweet_author": "Marcus Vance",
       "tweet_handle": "@CultynexStrat",
-      "tweet_text": "One razor-sharp technical judgment on how this architecture changes market dynamics.",
-      "metric_val": "+48%",
-      "metric_label": "THROUGHPUT MULTIPLIER | 2026 ROADMAP",
-      "telegram_big_picture": "One crisp sentence explaining the structural breakthrough.",
-      "telegram_numbers": "One sentence detailing the exact performance, power, or latency metrics.",
-      "telegram_strategic": "One sentence explaining who wins, who loses, and the market consequence.",
-      "quiz_question": "One technical question testing core understanding of this architecture.",
-      "options": ["Accurate Technical Answer", "Plausible Distractor 1", "Plausible Distractor 2", "Plausible Distractor 3"],
-      "correct_id": 0
+      "tweet_text": "One decisive analytical thesis on how this shifts silicon or hyperscale economics.",
+      "metric_val": "+38%",
+      "metric_label": "ENERGY EFFICIENCY VECTOR",
+      "telegram_shift": "One punchy sentence explaining the technological shift.",
+      "telegram_numbers": "One sentence stating the exact performance benchmarks or bandwidth.",
+      "telegram_impact": "One sentence on industry fallout and strategic winners.",
+      "quiz_question": "One deep technical question evaluating understanding.",
+      "options": ["Correct Technical Answer", "Misleading Alternative 1", "Misleading Alternative 2", "Misleading Alternative 3"],
+      "correct_id": 0,
+      "quiz_explanation": "One clear sentence explaining why this option is correct."
     }}
     """
     
@@ -91,19 +88,18 @@ async def render_editorial_card(data):
     with open("card_template.html", "r", encoding="utf-8") as f:
         template = f.read()
     
-    # Pick randomly from the verified tech visual gallery
-    img_url = random.choice(PREMIUM_TECH_IMAGES)
+    img_url = random.choice(CURATED_SILICON_IMAGES)
     
     html_content = template
     html_content = html_content.replace("{{TAG}}", data.get("tag", "CULTYNEX DISPATCH"))
     html_content = html_content.replace("{{READ_TIME}}", data.get("read_time", "2 MIN READ"))
-    html_content = html_content.replace("{{HEADLINE}}", data.get("headline", "SILICON ADVANCEMENT"))
+    html_content = html_content.replace("{{HEADLINE}}", data.get("headline", "SILICON BREAKTHROUGH"))
     html_content = html_content.replace("{{IMAGE_URL}}", img_url)
     html_content = html_content.replace("{{TWEET_AUTHOR}}", data.get("tweet_author", "Marcus Vance"))
     html_content = html_content.replace("{{TWEET_HANDLE}}", data.get("tweet_handle", "@CultynexStrat"))
     html_content = html_content.replace("{{TWEET_TEXT}}", data.get("tweet_text", ""))
-    html_content = html_content.replace("{{METRIC_VAL}}", data.get("metric_val", "+40%"))
-    html_content = html_content.replace("{{METRIC_LABEL}}", data.get("metric_label", "PERFORMANCE VECTOR"))
+    html_content = html_content.replace("{{METRIC_VAL}}", data.get("metric_val", "+38%"))
+    html_content = html_content.replace("{{METRIC_LABEL}}", data.get("metric_label", "EFFICIENCY"))
     
     with open("rendered_card.html", "w", encoding="utf-8") as f:
         f.write(html_content)
@@ -112,33 +108,49 @@ async def render_editorial_card(data):
         browser = await p.chromium.launch()
         page = await browser.new_page(viewport={"width": 1080, "height": 1350})
         await page.goto(f"file://{os.path.abspath('rendered_card.html')}")
-        await page.wait_for_timeout(2500)
+        await page.wait_for_timeout(2000)
         await page.screenshot(path="final_card.png")
         await browser.close()
 
 def send_telegram(data):
     headline = html.escape(data.get("headline", "CULTYNEX INTEL"))
-    big_pic = html.escape(data.get("telegram_big_picture", ""))
+    shift = html.escape(data.get("telegram_shift", ""))
     numbers = html.escape(data.get("telegram_numbers", ""))
-    strategic = html.escape(data.get("telegram_strategic", ""))
+    impact = html.escape(data.get("telegram_impact", ""))
 
     caption = (
         f"⚡ <b>{headline}</b>\n\n"
-        f"▫️ <b>THE SHIFT:</b> {big_pic}\n\n"
+        f"▫️ <b>THE SHIFT:</b> {shift}\n\n"
         f"▫️ <b>THE NUMBERS:</b> {numbers}\n\n"
-        f"▫️ <b>STRATEGIC IMPACT:</b> {strategic}\n\n"
-        f"🌐 <i>Cultynex Terminal • Intelligence Feed</i>"
+        f"▫️ <b>STRATEGIC IMPACT:</b> {impact}\n\n"
+        f"<i>Cultynex Terminal • Silicon & Macro Intelligence</i>"
     )
+
+    # Interactive inline keyboard button
+    reply_markup = {
+        "inline_keyboard": [
+            [
+                {"text": "🌐 Open Cultynex Terminal", "url": "https://realmrajaysingh-dev.github.io/telegram-commuter-bot/"}
+            ]
+        ]
+    }
     
+    # 1. Send Card Photo with Button
     with open("final_card.png", "rb") as photo:
         r_photo = requests.post(
             f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
-            data={"chat_id": CHAT_ID, "caption": caption, "parse_mode": "HTML"},
+            data={
+                "chat_id": CHAT_ID,
+                "caption": caption,
+                "parse_mode": "HTML",
+                "reply_markup": json.dumps(reply_markup)
+            },
             files={"photo": photo}
         )
         print("Telegram SendPhoto:", r_photo.status_code)
         r_photo.raise_for_status()
 
+    # 2. Send Quiz Poll with instant explanation
     r_poll = requests.post(
         f"https://api.telegram.org/bot{BOT_TOKEN}/sendPoll",
         json={
@@ -147,6 +159,7 @@ def send_telegram(data):
             "options": data["options"][:4],
             "type": "quiz",
             "correct_option_id": int(data.get("correct_id", 0)),
+            "explanation": data.get("quiz_explanation", "Verified by Cultynex Research.")[:200],
             "is_anonymous": True
         }
     )
@@ -154,13 +167,13 @@ def send_telegram(data):
     r_poll.raise_for_status()
 
 async def main():
-    print("Generating editorial payload...")
+    print("Gathering tech vector intelligence...")
     data = fetch_tech_dispatch()
-    print("Rendering high-res card...")
+    print("Rendering editorial asset...")
     await render_editorial_card(data)
-    print("Publishing to Telegram...")
+    print("Deploying to Telegram channel...")
     send_telegram(data)
-    print("Broadcast Complete!")
+    print("Dispatch deployed successfully!")
 
 if __name__ == "__main__":
     asyncio.run(main())
