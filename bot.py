@@ -257,12 +257,13 @@ def send_telegram(data, direct_article_url):
         ]
     }
     
-    # Clean plain string URL for Telegram endpoints
-    api_base = "[https://api.telegram.org/bot](https://api.telegram.org/bot)" + str(BOT_TOKEN)
+    api_token = str(BOT_TOKEN).strip()
+    photo_endpoint = f"[https://api.telegram.org/bot](https://api.telegram.org/bot){api_token}/sendPhoto"
+    poll_endpoint = f"[https://api.telegram.org/bot](https://api.telegram.org/bot){api_token}/sendPoll"
     
     with open("final_card.png", "rb") as photo:
         r_photo = requests.post(
-            f"{api_base}/sendPhoto",
+            photo_endpoint,
             data={
                 "chat_id": CHAT_ID,
                 "caption": caption,
@@ -275,7 +276,7 @@ def send_telegram(data, direct_article_url):
         r_photo.raise_for_status()
 
     r_poll = requests.post(
-        f"{api_base}/sendPoll",
+        poll_endpoint,
         json={
             "chat_id": CHAT_ID,
             "question": f"🎯 {data['quiz_question'][:255]}",
