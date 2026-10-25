@@ -16,10 +16,14 @@ genai.configure(api_key=GEMINI_KEY)
 
 def fetch_tech_dispatch():
     """Gemini generates editorial content, verified metrics, and simulated X quote."""
-    model = genai.GenerativeModel("gemini-1.5-flash")
-    
+    try:
+        model = genai.GenerativeModel("gemini-1.5-flash-latest")
+    except Exception:
+        model = genai.GenerativeModel("gemini-pro")
+
     prompt = """
     You are the Lead Tech & Macro Strategist for CULTYNEX MEDIA NETWORK.
+   
     Generate a high-authority editorial news brief on a major trending Tech/Silicon/AI breakthrough.
 
     OUTPUT ONLY VALID JSON:
