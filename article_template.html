@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>{{HEADLINE}} | Cultynex Intelligence</title>
+  <meta name="description" content="{{EXCERPT}}">
+  <meta property="og:title" content="{{HEADLINE}}">
+  <meta property="og:description" content="{{EXCERPT}}">
+  <meta property="og:image" content="{{IMAGE_URL}}">
+  <meta property="og:type" content="article">
+
+  <!-- Google News & SEO Schema -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "NewsArticle",
+    "headline": "{{HEADLINE}}",
+    "image": ["{{IMAGE_URL}}"],
+    "datePublished": "{{DATE_ISO}}",
+    "author": [{
+      "@type": "Person",
+      "name": "Cultynex Editorial Desk"
+    }]
+  }
+  </script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&family=Lora:ital,wght@0,400;0,500;0,600;1,400&display=swap');
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #07080b; color: #d6d9e0; font-family: 'Plus Jakarta Sans', sans-serif; line-height: 1.6; }
+
+    /* Top Strip */
+    .top-strip { background: #0c0e14; border-bottom: 1px solid rgba(255,255,255,0.08); padding: 8px 30px; font-family: 'JetBrains Mono', monospace; font-size: 11px; display: flex; justify-content: space-between; }
+    .status-ok { color: #00ff88; }
+
+    /* Navbar */
+    header { padding: 18px 40px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.06); background: rgba(7, 8, 11, 0.85); backdrop-filter: blur(20px); position: sticky; top: 0; z-index: 100; }
+    .brand { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 20px; font-weight: 800; color: #fff; text-decoration: none; display: flex; align-items: center; gap: 8px; }
+    .brand span { background: #e63946; color: #fff; padding: 3px 8px; border-radius: 4px; font-size: 12px; }
+    .tg-btn { background: #0088cc; color: #fff; font-size: 13px; font-weight: 700; text-decoration: none; padding: 8px 18px; border-radius: 20px; }
+
+    /* Container Grid */
+    .article-wrap { max-width: 1240px; margin: 40px auto; padding: 0 20px; display: grid; grid-template-columns: 1fr 340px; gap: 48px; }
+
+    /* Article Meta */
+    .badge { background: rgba(230,57,70,0.15); color: #ff4d5e; border: 1px solid #e63946; font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 4px; text-transform: uppercase; }
+    .meta-row { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; font-size: 13px; color: #7f8699; }
+    .article-title { font-size: 44px; line-height: 1.18; font-weight: 800; color: #fff; letter-spacing: -1px; margin-bottom: 20px; }
+    
+    .author-strip { display: flex; align-items: center; justify-content: space-between; border-top: 1px solid rgba(255,255,255,0.08); border-bottom: 1px solid rgba(255,255,255,0.08); padding: 14px 0; margin-bottom: 28px; font-size: 13px; }
+    .author-name { color: #fff; font-weight: 600; }
+    .timestamp { font-family: 'JetBrains Mono', monospace; color: #8e95ab; }
+
+    /* Main Featured Hero Image */
+    .lead-figure { width: 100%; border-radius: 14px; overflow: hidden; margin-bottom: 30px; border: 1px solid rgba(255,255,255,0.1); }
+    .lead-figure img { width: 100%; height: 500px; object-fit: cover; display: block; }
+
+    /* High-Impact Highlights Box */
+    .highlights-box { background: rgba(14, 17, 24, 0.9); border: 1px solid rgba(255,255,255,0.1); border-left: 4px solid #00ff88; border-radius: 10px; padding: 22px 26px; margin-bottom: 36px; }
+    .highlights-title { font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 700; color: #00ff88; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 12px; }
+    .highlights-list { list-style: none; display: flex; flex-direction: column; gap: 10px; font-size: 15px; color: #cfd5e6; }
+    .highlights-list li strong { color: #fff; }
+
+    /* Article Body Typography */
+    .prose { font-family: 'Lora', Georgia, serif; font-size: 19px; line-height: 1.8; color: #c8cedd; }
+    .prose p { margin-bottom: 24px; }
+    .prose h2 { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 28px; font-weight: 800; color: #fff; margin: 40px 0 16px 0; letter-spacing: -0.5px; }
+    .prose blockquote { border-left: 3px solid #e63946; padding-left: 20px; font-style: italic; color: #fff; margin: 30px 0; background: rgba(255,255,255,0.02); padding: 16px 20px; border-radius: 0 8px 8px 0; }
+
+    /* Sidebar */
+    .side-card { background: #0e1017; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 22px; margin-bottom: 24px; }
+    .side-title { font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 700; color: #fff; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 14px; border-bottom: 1px solid rgba(255,255,255,0.06); padding-bottom: 10px; }
+    .trending-item { padding: 12px 0; border-bottom: 1px dashed rgba(255,255,255,0.06); }
+    .trending-item:last-child { border: none; }
+    .trending-tag { font-size: 10px; font-family: 'JetBrains Mono', monospace; color: #e63946; text-transform: uppercase; }
+    .trending-head { font-size: 14px; font-weight: 600; color: #fff; margin-top: 4px; line-height: 1.35; }
+
+    .lead-magnet { background: linear-gradient(145deg, rgba(230,57,70,0.15), rgba(14,16,23,0.9)); border: 1px solid rgba(230,57,70,0.4); border-radius: 12px; padding: 22px; }
+    .lm-btn { display: block; background: #e63946; color: #fff; text-align: center; text-decoration: none; font-size: 13px; font-weight: 700; padding: 12px; border-radius: 8px; margin-top: 14px; }
+
+    @media (max-width: 900px) {
+      .article-wrap { grid-template-columns: 1fr; }
+      .article-title { font-size: 30px; }
+      .lead-figure img { height: 280px; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="top-strip">
+    <div>CULTYNEX DISPATCH TERMINAL • EDITORIAL LONGFORM</div>
+    <div>TRANSIT STATUS: <span class="status-ok">ALL SYSTEMS GREEN</span></div>
+  </div>
+
+  <header>
+    <a href="../index.html" class="brand"><span>TERMINAL</span> CULTYNEX DAILY</a>
+    <a href="https://t.me/cultynex_daily" target="_blank" class="tg-btn">Join Telegram Channel</a>
+  </header>
+
+  <div class="article-wrap">
+    
+    <main>
+      <div class="meta-row">
+        <span class="badge">{{CATEGORY}}</span>
+        <span>• {{READ_TIME}} MIN READ</span>
+        <span>• UPDATED {{DATE_PRETTY}}</span>
+      </div>
+
+      <h1 class="article-title">{{HEADLINE}}</h1>
+
+      <div class="author-strip">
+        <div>By <span class="author-name">Cultynex Strategic Intelligence Desk</span></div>
+        <div class="timestamp">VERIFIED REPORT // HARBINGER</div>
+      </div>
+
+      <div class="lead-figure">
+        <img src="{{IMAGE_URL}}" alt="{{HEADLINE}}" />
+      </div>
+
+      <!-- Highlights Box -->
+      <div class="highlights-box">
+        <div class="highlights-title">KEY STRATEGIC TAKEAWAYS</div>
+        <ul class="highlights-list">
+          {{HIGHLIGHTS_HTML}}
+        </ul>
+      </div>
+
+      <!-- Full In-Depth Content -->
+      <article class="prose">
+        {{ARTICLE_CONTENT_HTML}}
+      </article>
+    </main>
+
+    <!-- Sidebar -->
+    <aside>
+      <div class="side-card">
+        <div class="side-title">TRENDING INTELLIGENCE</div>
+        <div class="trending-item">
+          <span class="trending-tag">Silicon</span>
+          <div class="trending-head">Sub-2nm Foundry Capacities Fully Booked Through 2027</div>
+        </div>
+        <div class="trending-item">
+          <span class="trending-tag">Macro</span>
+          <div class="trending-head">Global Hyperscalers Pivot to On-Premise Nuclear SMRs</div>
+        </div>
+        <div class="trending-item">
+          <span class="trending-tag">Autonomous</span>
+          <div class="trending-head">Humanoid Actuator Backlog Surpasses Automotive Tiers</div>
+        </div>
+      </div>
+
+      <div class="lead-magnet">
+        <div style="font-size:11px; font-family:'JetBrains Mono', monospace; color:#e63946; font-weight:700;">FREE MASTER FILE</div>
+        <h3 style="color:#fff; font-size:16px; margin:8px 0;">2026 AI Compute & Silicon Architecture Blueprint</h3>
+        <p style="font-size:13px; color:#9fa6bc;">Download complete unredacted hardware teardowns and model training benchmarks.</p>
+        <a href="https://t.me/cultynex_daily" class="lm-btn">DOWNLOAD MASTER BLUEPRINT &rarr;</a>
+      </div>
+    </aside>
+
+  </div>
+
+</body>
+</html>
