@@ -120,4 +120,4 @@ See [AGENT_REGISTRY.md](./AGENT_REGISTRY.md) for all 220 proposed functional rol
 
 ## 8. Proposed implementation sequence
 
-The safest first milestone is documented in [DEVELOPMENT_ROADMAP.md](./DEVELOPMENT_ROADMAP.md): a local-only, read-only policy and task-manifest prototype with synthetic fixtures, no production workflow changes, no external API calls, no secrets, no schedules, no spend, and no publishing. The drafts in this directory do not implement that prototype.
+The safest first milestone is documented in [DEVELOPMENT_ROADMAP.md](./DEVELOPMENT_ROADMAP.md). A local-only prototype now validates assignment windows, role references, task state, review evidence, observer reports, Director approvals, and a hash-chained audit log. It uses synthetic records, no external API calls, no credentials, no schedules, no spending, and no publishing. See [DEVELOPMENT_PROGRESS.md](./DEVELOPMENT_PROGRESS.md) for implementation and test results.

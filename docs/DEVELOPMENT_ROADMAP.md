@@ -14,19 +14,19 @@
 
 Review repository audit, proposed boundaries, policies, the 220-role registry, horizons, gates, resource assumptions, and migration constraints. Resolve Director decisions on threat model, data retention, approval identity, and acceptable draft data before implementation. No source-code changes are part of this milestone.
 
-## Milestone 1 — Local-only contracts and policy validator (safest first implementation)
+## Milestone 1 — Local-only contracts and policy validator (implemented on development branch)
 
-Create a small, offline prototype for versioned assignment/task manifests and deterministic validation. Use standard-library tooling and synthetic input fixtures. Validate identity fields as supplied by a trusted test harness, assignment start/end, seven-day default, one explicit extension, hard 14-day horizon, dependencies, states, role IDs, gate-evidence presence, zero-spend default, and prohibition of publish actions. CSV/XLSX import can be a separate reviewed parser; initially define schema and fixtures without accepting untrusted workbooks.
+The initial offline prototype is implemented in `studio/` with standard-library tooling and synthetic tests. It validates versioned assignment manifests, trusted Director IDs supplied by the local harness, assignment expiry, a seven-day initial window, one explicit extension, the 14-day total/forward horizon, role and department references, task dependencies, status transitions, required evidence, four distinct review gates, observer disagreement, zero-spend default, Director approval, bounded transient retry, and audit-chain integrity. Registry metadata is loaded from `AGENT_REGISTRY.md`.
 
-Acceptance: unit tests cover valid/invalid assignments, boundary dates, extension count, dependencies/cycles, missing gates, and non-authorized publish/spend transitions. No network requests, credentials, schedules, production workflow edits, public writes, or new dependencies. Produce a test report and ask for approval before moving on.
+Automated tests cover these local policy checks and recovery paths. No network requests, credentials, schedules, production workflow edits, public writes, or new dependencies are used. The prototype is not an authentication system or production-ready queue.
 
-## Milestone 2 — Read-only task/evidence ledger
+## Milestone 2 — Durable task/evidence ledger hardening (next)
 
-Choose a persistence format based on tested requirements; add versioned task records, append-only decision/evidence entries, artifact hashes, typed state transitions, and export. Test restart/replay and audit trail integrity using synthetic data. Introduce retention/access policy before real assets or personal data.
+Harden the SQLite prototype with transactional schema migrations, export/import, retention and access policy, restart/replay coverage, and an independently anchored audit trail. Test using synthetic data. Introduce the retention/access policy before real assets or personal data.
 
-## Milestone 3 — Review workflow with human-only release authorization
+## Milestone 3 — Review workflow and human authorization hardening (next)
 
-Implement four independent gates and human approval binding to final artifact hash, destination, timing, and spend. Add a local preview package. Require tests proving edits invalidate approval, gate failures block, and absent owner does not authorize release. No publishing adapter.
+The prototype records four distinct evidence-backed gate results and hash-bound Director approvals, but is not a production release-authorization service. Add an expiring, one-use authorization bound to final artifact, destination, timing, and spend; establish reviewer identity/independence; and test that any edit invalidates approval and an absent Director blocks release. No publishing adapter.
 
 ## Milestone 4 — Staging ingestion and one draft department
 
