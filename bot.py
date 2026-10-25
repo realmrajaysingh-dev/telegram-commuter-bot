@@ -59,19 +59,18 @@ LEAD_MAGNETS = [
 ]
 
 def generate_with_fallback(prompt):
-    """Automatically queries Google AI Studio for whichever text models are currently active on this key."""
+    """Automatically queries Google AI Studio for active text models on this key."""
     active_models = []
     try:
         for m in genai.list_models():
             if "generateContent" in m.supported_generation_methods:
                 active_models.append(m.name)
-        print(f"Discovered {len(active_models)} available models on account: {active_models}")
+        print(f"Discovered {len(active_models)} available models on account.")
     except Exception as e:
         print("Model discovery error:", e)
 
-    # Agar list empty ho, toh safety fallback
     if not active_models:
-        active_models = ["models/gemini-pro", "gemini-pro"]
+        active_models = ["models/gemini-2.5-flash", "models/gemini-1.5-flash", "models/gemini-pro"]
 
     last_err = None
     for model_name in active_models:
@@ -259,6 +258,7 @@ def send_telegram(data, direct_article_url):
         ]
     }
     
+    # 1. Post Visual Card Photo + Caption + Buttons
     with open("final_card.png", "rb") as photo:
         r_photo = requests.post(
             f"[https://api.telegram.org/bot](https://api.telegram.org/bot){BOT_TOKEN}/sendPhoto",
@@ -273,6 +273,7 @@ def send_telegram(data, direct_article_url):
         print("Telegram SendPhoto:", r_photo.status_code)
         r_photo.raise_for_status()
 
+    # 2. Quiz Poll with explanation
     r_poll = requests.post(
         f"[https://api.telegram.org/bot](https://api.telegram.org/bot){BOT_TOKEN}/sendPoll",
         json={
