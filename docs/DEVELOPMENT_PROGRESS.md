@@ -60,3 +60,13 @@ One intermediate run failed because the timestamp helper's `timezone` import was
 3. Define the local database lifecycle, permissions, backup, retention, and migration policy before using real operational records.
 4. Design a real Director authentication/approval mechanism before any service or Telegram command interface.
 5. Keep real sources, private media, credentials, schedules, and external publishing out of scope until separately approved.
+
+## Session 02 — Independent Observer Engine
+
+Implemented `studio/observer.py` as an independent, deterministic checker that opens the local SQLite database read-only and does not invoke the task author, CEO Operator, network, or publishing adapter. It reports assignment authorization/policy errors, seven-day and fourteen-day horizon violations, expired instructions, duplicate task requests, mismatched or missing assignment/release approvals, unknown roles and department mismatches, invalid states/dependencies, unauthorized publishing states/events, audit-chain tampering/gaps, failed task recovery status, observer disagreement and resolution validity, and author/reviewer/observer identity conflicts.
+
+Findings are stable-ID records with observer ID, rule code, severity, subject, and evidence references. The engine returns an in-memory report; it does not write its own reports, modify task state, notify anyone, or remediate findings. A deterministic Observer Engine is implemented; AI observer roles, remote monitoring, alert delivery, external platform verification, and automatic remediation remain planned only.
+
+**Files added/changed in Session 02:** `studio/observer.py`, `studio/__init__.py`, `tests/test_observer.py`, `docs/OBSERVER_NETWORK.md`, `docs/DEVELOPMENT_ROADMAP.md`, and this report.
+
+**Verification:** the combined original and observer test suite contains 37 tests. All fixtures are synthetic and no external service or production workflow is exercised.

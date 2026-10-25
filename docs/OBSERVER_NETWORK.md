@@ -1,12 +1,22 @@
 # Independent Observer Network
 
-**Status:** Proposed monitoring and challenge layer; not implemented.
+**Status:** Deterministic local observer engine implemented; AI-assisted observer capabilities remain proposed.
+
+## Implemented deterministic prototype
+
+`studio/observer.py` provides a standard-library, read-only SQLite observer engine. Its independent checkers report assignment policy and approval issues, seven-day and fourteen-day horizon violations, duplicate task requests, missing task release approvals, observed publishing states/events, hash-chain inconsistencies, failed tasks, observer disagreement, and reviewer/author identity overlap. Findings use stable IDs and evidence references. The engine reads a consistent SQLite snapshot using read-only/query-only mode and does not write observer results, change task state, make network calls, or initiate any external action.
+
+Automated synthetic-data tests exercise each checker. This is deterministic rules-based validation; it does not use AI models, source verification, external telemetry, or production authentication. The engine receives trusted local Director IDs and the role registry from its caller.
+
+## Planned capabilities — not implemented
+
+The observer lanes below describe future role coverage. There are no deployed AI observers, remote monitor, alert delivery service, policy-learning system, platform-status connection, or autonomous remediation. Observed publishing is flagged as a blocking violation because this prototype has no publishing authorization or adapter. Do not treat the prototype as a replacement for the four editorial review gates or final human approval.
 
 ## Purpose and independence
 
 Observers look for failures, policy drift, missing evidence, suspicious state transitions, resource overruns, and discrepancies between intended and actual delivery. An observer is not a fifth voting model and does not turn agreement into proof. Fact claims still need traceable sources and an appropriately independent verification process.
 
-The network is operationally separate from the authoring path: read-only access to task manifests, source/evidence references, gate outcomes, artifact hashes, budget summaries, and platform receipts. It cannot edit content, approve gates, spend, or publish. Observer findings are append-only alerts; a named human resolves or accepts residual risk.
+The proposed network is operationally separate from the authoring path: read-only access to task manifests, source/evidence references, gate outcomes, artifact hashes, budget summaries, and platform receipts. It cannot edit content, approve gates, spend, or publish. In the current prototype, findings are returned as an in-memory report rather than persisted alerts; a named human resolution is represented only by existing local synthetic ledger records.
 
 ## Observer lanes
 
@@ -36,4 +46,4 @@ If observer data is unavailable or inconsistent, do not infer a pass. Hold affec
 
 ## MVP
 
-Begin with deterministic local checks on synthetic task manifests: valid dates/horizon, valid dependencies, required gate evidence, budget ceiling, approval/artifact hash match, and transition legality. No production credentials, remote telemetry, or autonomous remediation are needed for the first prototype.
+The deterministic local-check MVP is implemented for the checks listed above. Remaining work includes schema migrations, task dependency cycle and eligibility analysis, persistent observer-run history, access controls, externally anchored audit integrity, operational alerting, and production authentication. Do not provide real operational data until those controls are designed and reviewed.

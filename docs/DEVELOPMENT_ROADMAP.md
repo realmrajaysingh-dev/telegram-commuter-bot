@@ -16,9 +16,9 @@ Review repository audit, proposed boundaries, policies, the 220-role registry, h
 
 ## Milestone 1 — Local-only contracts and policy validator (implemented on development branch)
 
-The initial offline prototype is implemented in `studio/` with standard-library tooling and synthetic tests. It validates versioned assignment manifests, trusted Director IDs supplied by the local harness, assignment expiry, a seven-day initial window, one explicit extension, the 14-day total/forward horizon, role and department references, task dependencies, status transitions, required evidence, four distinct review gates, observer disagreement, zero-spend default, Director approval, bounded transient retry, and audit-chain integrity. Registry metadata is loaded from `AGENT_REGISTRY.md`.
+The initial offline prototype is implemented in `studio/` with standard-library tooling and synthetic tests. It validates versioned assignment manifests, trusted Director IDs supplied by the local harness, assignment expiry, a seven-day initial window, one explicit extension, the 14-day total/forward horizon, role and department references, task dependencies, status transitions, required evidence, four distinct review gates, observer disagreement, zero-spend default, Director approval, bounded transient retry, and audit-chain integrity. A separate read-only observer engine checks assignment policy, horizon, duplicate tasks, approvals, publishing-boundary violations, audit consistency, failures, observer disagreement, and review independence. Registry metadata is loaded from `AGENT_REGISTRY.md`.
 
-Automated tests cover these local policy checks and recovery paths. No network requests, credentials, schedules, production workflow edits, public writes, or new dependencies are used. The prototype is not an authentication system or production-ready queue.
+Automated tests cover these local policy checks, observer reports, and recovery paths. No AI observer models, network requests, credentials, schedules, production workflow edits, public writes, or new dependencies are used. The prototype is not an authentication system or production-ready queue.
 
 ## Milestone 2 — Durable task/evidence ledger hardening (next)
 
