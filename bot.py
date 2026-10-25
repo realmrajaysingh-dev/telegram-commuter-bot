@@ -17,6 +17,15 @@ CHAT_ID = os.getenv("TELEGRAM_CHANNEL_ID")
 
 genai.configure(api_key=GEMINI_KEY)
 
+# High-Quota priority fallback list to avoid 429 quota exhaustion
+FALLBACK_MODELS = [
+    "models/gemini-2.5-flash",
+    "models/gemini-1.5-flash",
+    "models/gemini-3.8-flash",
+    "models/gemini-2.5-pro",
+    "models/gemini-1.5-pro"
+]
+
 # 2. Tech Intelligence Tracks
 TECH_DOMAINS = [
     "Silicon Photonics & Co-Packaged Optics in AI Clusters",
@@ -58,24 +67,22 @@ LEAD_MAGNETS = [
     }
 ]
 
-def get_best_model():
-    """Selects the best active Gemini model."""
-    working_model = "gemini-3.8-flash"
-    try:
-        available = [m.name for m in genai.list_models() if "generateContent" in m.supported_generation_methods]
-        for candidate in ["models/gemini-3.8-flash", "models/gemini-2.5-flash", "models/gemini-1.5-flash", "models/gemini-pro"]:
-            if candidate in available:
-                return candidate
-        if available:
-            return available[0]
-    except Exception:
-        pass
-    return working_model
+def generate_with_fallback(prompt):
+    """Executes prompt against high-quota Gemini models sequentially to bypass 429 quota exhaustion."""
+    for model_name in FALLBACK_MODELS:
+        try:
+            print(f"Attempting generation with: {model_name}")
+            model = genai.GenerativeModel(model_name)
+            response = model.generate_content(prompt)
+            if response and response.text:
+                return response.text.strip()
+        except Exception as e:
+            print(f"Model {model_name} quota/error: {e}. Switching to next candidate...")
+            continue
+    raise RuntimeError("All configured Gemini models failed or hit quota limits.")
 
 def fetch_tech_dispatch():
     """Generates structured payload for Telegram post, quiz, and metadata."""
-    working_model = get_best_model()
-    model = genai.GenerativeModel(working_model)
     domain = random.choice(TECH_DOMAINS)
     seed = random.randint(10000, 99999)
     
@@ -104,23 +111,18 @@ def fetch_tech_dispatch():
     }}
     """
     
-    res = model.generate_content(prompt)
-    text = res.text.strip()
-    match = re.search(r"\{.*\}", text, re.DOTALL)
+    raw_text = generate_with_fallback(prompt)
+    match = re.search(r"\{.*\}", raw_text, re.DOTALL)
     if match:
         return json.loads(match.group(0))
-    return json.loads(text)
+    return json.loads(raw_text)
 
 def generate_and_publish_web_story(data, img_url):
     """Writes an exhaustive, SEO-optimized 800+ word article and saves to articles/ folder."""
     os.makedirs("articles", exist_ok=True)
     
-    # Create clean slug from headline
     clean_slug = re.sub(r'[^a-zA-Z0-9]+', '-', data.get("headline", "intel-brief").lower()).strip('-')
     file_path = f"articles/{clean_slug}.html"
-    
-    working_model = get_best_model()
-    writer_model = genai.GenerativeModel(working_model)
     
     article_prompt = f"""
     You are an elite Investigative Technology Journalist at The Hindu / Wired level.
@@ -140,16 +142,14 @@ def generate_and_publish_web_story(data, img_url):
     Make it rich with technical specifics, silicon physical laws, and industry analysis.
     """
     
-    article_res = writer_model.generate_content(article_prompt)
-    article_body = article_res.text.replace("```html", "").replace("```", "").strip()
+    article_raw = generate_with_fallback(article_prompt)
+    article_body = article_raw.replace("```html", "").replace("```", "").strip()
 
-    # Load article template if exists, else fallback
     template_content = ""
     if os.path.exists("article_template.html"):
         with open("article_template.html", "r", encoding="utf-8") as f:
             template_content = f.read()
     else:
-        # Fallback inline template
         template_content = """
         <!DOCTYPE html>
         <html lang="en">
@@ -247,7 +247,6 @@ def send_telegram(data, direct_article_url):
         f"──────────────"
     )
 
-    # Clickable Buttons below post
     reply_markup = {
         "inline_keyboard": [
             [
@@ -259,7 +258,6 @@ def send_telegram(data, direct_article_url):
         ]
     }
     
-    # 1. Post Visual Card Photo + Caption + Buttons
     with open("final_card.png", "rb") as photo:
         r_photo = requests.post(
             f"[https://api.telegram.org/bot](https://api.telegram.org/bot){BOT_TOKEN}/sendPhoto",
@@ -274,7 +272,6 @@ def send_telegram(data, direct_article_url):
         print("Telegram SendPhoto:", r_photo.status_code)
         r_photo.raise_for_status()
 
-    # 2. Quiz Poll with explanation
     r_poll = requests.post(
         f"[https://api.telegram.org/bot](https://api.telegram.org/bot){BOT_TOKEN}/sendPoll",
         json={
