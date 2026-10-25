@@ -15,12 +15,14 @@
         extend: {
           colors: {
             pitch: '#060709',
-            surface: '#0B0D12',
-            card: '#10131A',
+            surface: '#0B0D13',
+            card: '#10131B',
+            cardHover: '#151923',
             borderSubtle: 'rgba(255, 255, 255, 0.08)',
             crimson: '#E63946',
             phosphor: '#00FF88',
-            cyberCyan: '#00E5FF'
+            cyberCyan: '#00F0FF',
+            amberGlow: '#FFB703'
           },
           fontFamily: {
             sans: ['"Plus Jakarta Sans"', 'system-ui', 'sans-serif'],
@@ -35,7 +37,7 @@
   <!-- Typography -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;1,6..72,400&family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 
   <style>
     body {
@@ -49,62 +51,98 @@
         linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
         linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
     }
-    .glass {
-      background: rgba(16, 19, 26, 0.75);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
+    
+    /* Reading Progress Bar Glow */
+    #readingProgress {
+      transition: width 0.1s ease-out;
+      box-shadow: 0 0 12px #00FF88, 0 0 4px #00FF88;
     }
-    /* Custom scrollbar */
+
+    /* Custom scrollbars */
     ::-webkit-scrollbar { width: 6px; height: 6px; }
     ::-webkit-scrollbar-track { background: #060709; }
-    ::-webkit-scrollbar-thumb { background: #1F2430; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb { background: #1B1F2A; border-radius: 3px; }
     ::-webkit-scrollbar-thumb:hover { background: #E63946; }
-    
-    .ticker-wrap {
-      overflow: hidden;
-      white-space: nowrap;
-    }
-    .ticker-content {
-      display: inline-flex;
-      animation: ticker 40s linear infinite;
-    }
-    .ticker-wrap:hover .ticker-content {
-      animation-play-state: paused;
-    }
+
+    /* Telemetry marquee ticker */
+    .ticker-wrap { overflow: hidden; white-space: nowrap; }
+    .ticker-content { display: inline-flex; animation: ticker 42s linear infinite; }
+    .ticker-wrap:hover .ticker-content { animation-play-state: paused; }
     @keyframes ticker {
       0% { transform: translateX(0); }
       100% { transform: translateX(-50%); }
     }
+
+    /* Jargon term dotted underline and interaction */
+    .jargon-term {
+      position: relative;
+      cursor: help;
+      text-decoration: underline dotted #00F0FF;
+      text-underline-offset: 4px;
+      color: #FFFFFF;
+      font-weight: 600;
+      transition: all 0.2s ease;
+    }
+    .jargon-term:hover {
+      color: #00F0FF;
+      background: rgba(0, 240, 255, 0.08);
+      border-radius: 3px;
+    }
+
+    /* Waveform visualizer bars */
+    .audio-bar {
+      transition: height 0.1s ease;
+    }
+
+    /* Article text size variants */
+    .text-mode-sm p { font-size: 1rem; line-height: 1.7; }
+    .text-mode-base p { font-size: 1.125rem; line-height: 1.8; }
+    .text-mode-lg p { font-size: 1.25rem; line-height: 1.9; }
+
+    /* Font switchers */
+    .font-mode-serif { font-family: 'Newsreader', Georgia, serif; }
+    .font-mode-sans { font-family: 'Plus Jakarta Sans', system-ui, sans-serif; }
   </style>
 </head>
-<body class="min-h-screen grid-bg antialiased selection:bg-crimson selection:text-white">
+<body class="min-h-screen grid-bg antialiased selection:bg-crimson selection:text-white pb-28">
 
-  <!-- Top Real-time Financial & Transit Telemetry -->
-  <aside class="w-full bg-[#030406] border-b border-borderSubtle text-[11px] font-mono py-1.5 px-4 sticky top-0 z-50">
+  <!-- Top Real-time Reading Progress Bar -->
+  <div class="fixed top-0 left-0 right-0 h-1 bg-transparent z-[60]">
+    <div id="readingProgress" class="h-full bg-phosphor w-0"></div>
+  </div>
+
+  <!-- Global Toast Notification -->
+  <div id="toastNotification" class="fixed top-12 right-6 z-50 transform translate-y-[-100px] opacity-0 transition-all duration-300 pointer-events-none flex items-center space-x-2.5 bg-pitch/95 border border-phosphor/40 px-4 py-2.5 rounded-xl shadow-2xl backdrop-blur-md font-mono text-xs text-white">
+    <span class="w-2 h-2 rounded-full bg-phosphor animate-ping"></span>
+    <span id="toastMsg">URL copied to clipboard!</span>
+  </div>
+
+  <!-- Top Real-time Market & Transit Ticker -->
+  <aside class="w-full bg-[#030406] border-b border-borderSubtle text-[11px] font-mono py-1.5 px-4 sticky top-0 z-40">
     <div class="max-w-7xl mx-auto flex items-center justify-between">
       <div class="flex items-center space-x-2 shrink-0">
         <span class="inline-block w-2 h-2 rounded-full bg-phosphor animate-ping"></span>
-        <span class="text-white font-bold tracking-wider uppercase">CULTYNEX NET // DISPATCH PULSE</span>
+        <span class="text-white font-bold tracking-wider uppercase">CULTYNEX DISPATCH TELEMETRY</span>
       </div>
 
       <div class="ticker-wrap overflow-hidden mx-4 text-neutral-400 hidden md:block">
         <div class="ticker-content space-x-6">
-          <span>NVDA: <strong class="text-phosphor">$144.20 (+3.8%)</strong></span>
+          <span>NVDA (B200 NVL72): <strong class="text-phosphor">$144.20 (+3.8%)</strong></span>
           <span>•</span>
-          <span>TSMC (2nm N2P): <strong class="text-phosphor">YIELD 72% (+4.1%)</strong></span>
+          <span>TSMC 2nm N2P: <strong class="text-phosphor">YIELD 72% (+4.1%)</strong></span>
           <span>•</span>
           <span>NIFTY 50: <strong class="text-neutral-200">24,850 (-0.24%)</strong></span>
           <span>•</span>
           <span>DELHI METRO: <strong class="text-phosphor">NORMAL 2.5m HEADWAY</strong></span>
           <span>•</span>
-          <span>NAMO BHARAT RRTS: <strong class="text-cyberCyan">ON TIME 160KM/H</strong></span>
+          <span>NAMO BHARAT RRTS: <strong class="text-cyberCyan">ON TIME 160 KM/H</strong></span>
           <span>•</span>
-          <span>GLOBAL EUV SCANNERS: <strong class="text-crimson">ASML HIGH-NA BACKLOG 34 MO</strong></span>
-          <!-- Duplicate for seamless scroll -->
+          <span>ASML HIGH-NA 0.55: <strong class="text-crimson">BACKLOG 34 MO</strong></span>
+          <!-- Duplicate for seamless infinite rotation -->
           <span>•</span>
-          <span>NVDA: <strong class="text-phosphor">$144.20 (+3.8%)</strong></span>
+          <span>NVDA (B200 NVL72): <strong class="text-phosphor">$144.20 (+3.8%)</strong></span>
           <span>•</span>
-          <span>TSMC (2nm N2P): <strong class="text-phosphor">YIELD 72% (+4.1%)</strong></span>
+          <span>TSMC 2nm N2P: <strong class="text-phosphor">YIELD 72% (+4.1%)</strong></span>
           <span>•</span>
           <span>NIFTY 50: <strong class="text-neutral-200">24,850 (-0.24%)</strong></span>
           <span>•</span>
@@ -113,14 +151,14 @@
       </div>
 
       <div class="flex items-center space-x-3 shrink-0 text-[10px]">
-        <span class="text-neutral-400">STATUS:</span>
-        <span class="text-phosphor font-bold bg-phosphor/10 px-2 py-0.5 rounded border border-phosphor/30">ONLINE</span>
+        <span class="text-neutral-400">NODE STATUS:</span>
+        <span class="text-phosphor font-bold bg-phosphor/10 px-2 py-0.5 rounded border border-phosphor/30">V3.9 ACTIVE</span>
       </div>
     </div>
   </aside>
 
   <!-- Main Navigation Header -->
-  <header class="w-full border-b border-borderSubtle bg-pitch/90 backdrop-blur-md sticky top-[29px] z-40">
+  <header class="w-full border-b border-borderSubtle bg-pitch/90 backdrop-blur-md sticky top-[29px] z-30">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 py-3.5 flex items-center justify-between">
       
       <div class="flex items-center space-x-4">
@@ -133,22 +171,29 @@
 
         <!-- Category Nav -->
         <nav class="hidden lg:flex items-center space-x-1 pl-6 text-xs font-mono font-medium text-neutral-400">
-          <button onclick="filterCategory('all')" class="px-3 py-1.5 rounded-lg text-white bg-neutral-900 border border-borderSubtle hover:text-white transition">/ ALL_INTEL</button>
-          <button onclick="filterCategory('silicon')" class="px-3 py-1.5 rounded-lg hover:text-white hover:bg-neutral-900/60 transition">/ SILICON_RADAR</button>
-          <button onclick="filterCategory('macro')" class="px-3 py-1.5 rounded-lg hover:text-white hover:bg-neutral-900/60 transition">/ SOVEREIGN_AI</button>
-          <button onclick="filterCategory('transit')" class="px-3 py-1.5 rounded-lg hover:text-white hover:bg-neutral-900/60 transition">/ TRANSIT_PULSE</button>
-          <button onclick="filterCategory('archive')" class="px-3 py-1.5 rounded-lg hover:text-white hover:bg-neutral-900/60 transition">/ ARCHIVES</button>
+          <button onclick="setCategoryFilter('all')" class="category-btn active px-3 py-1.5 rounded-lg text-white bg-neutral-900 border border-borderSubtle transition">/ ALL_INTEL</button>
+          <button onclick="setCategoryFilter('silicon')" class="category-btn px-3 py-1.5 rounded-lg hover:text-white hover:bg-neutral-900/60 transition">/ SILICON_RADAR</button>
+          <button onclick="setCategoryFilter('sovereign')" class="category-btn px-3 py-1.5 rounded-lg hover:text-white hover:bg-neutral-900/60 transition">/ SOVEREIGN_AI</button>
+          <button onclick="setCategoryFilter('transit')" class="category-btn px-3 py-1.5 rounded-lg hover:text-white hover:bg-neutral-900/60 transition">/ TRANSIT_PULSE</button>
         </nav>
       </div>
 
       <div class="flex items-center space-x-3">
+        <!-- Bookmark Counter Pill -->
+        <button onclick="toggleBookmarkPanel()" class="hidden sm:flex items-center space-x-1.5 px-3 py-1.5 rounded-xl border border-borderSubtle bg-surface hover:bg-card text-xs font-mono text-neutral-300 transition">
+          <svg class="w-3.5 h-3.5 text-amberGlow fill-current" viewBox="0 0 24 24"><path d="M17 3H7c-1.1 0-2 .9-2 2v16l7-3 7 3V5c0-1.1-.9-2-2-2z"/></svg>
+          <span id="bookmarkCount">0</span>
+        </button>
+
+        <!-- Direct Telegram Community Link -->
         <a href="https://t.me/cultynex_daily" target="_blank" rel="noopener noreferrer" 
            class="inline-flex items-center space-x-2 bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold px-4 py-2 rounded-xl transition shadow-lg shadow-sky-950/40 font-mono">
           <svg class="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M12 0C5.37 0 0 5.37 0 12s5.37 12 12 12 12-5.37 12-12S18.63 0 12 0zm5.56 8.16l-1.92 9.07c-.14.65-.53.81-1.07.51l-2.96-2.18-1.43 1.38c-.16.16-.29.29-.6.29l.21-3.03 5.52-4.99c.24-.21-.05-.33-.37-.12l-6.82 4.29-2.94-.92c-.64-.2-.65-.64.13-.95l11.48-4.42c.53-.2 1 .13.86.87z"/></svg>
           <span class="hidden sm:inline">Join Live Telegram</span>
         </a>
 
-        <a href="./admin.html" class="p-2 rounded-xl border border-borderSubtle bg-neutral-900 hover:bg-neutral-800 text-neutral-400 hover:text-white transition" title="Dispatcher Remote">
+        <!-- Dispatcher Remote Link -->
+        <a href="./admin.html" class="p-2 rounded-xl border border-borderSubtle bg-neutral-900 hover:bg-neutral-800 text-neutral-400 hover:text-white transition" title="Open Dispatch Studio Deck">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/></svg>
         </a>
       </div>
@@ -156,13 +201,43 @@
     </div>
   </header>
 
-  <!-- Breaking Wire Bar -->
-  <section class="border-b border-borderSubtle bg-surface/80 py-2 px-4">
-    <div class="max-w-7xl mx-auto flex items-center space-x-3 text-xs font-mono">
-      <span class="bg-crimson text-white font-extrabold px-2 py-0.5 rounded text-[10px] tracking-wider uppercase shrink-0 animate-pulse">BREAKING WIRE</span>
-      <p id="breakingHeadline" class="text-neutral-300 truncate">
-        India AI Mission initiates 10,000+ sovereign GPU deployment tenders • TSMC hints at 1.4nm commercial wafer ramp by late 2027 • Backside power delivery solves thermal bottlenecks.
-      </p>
+  <!-- Interactive Reading Customizer Strip -->
+  <section class="border-b border-borderSubtle bg-surface/90 py-2 px-4 sticky top-[71px] z-20 backdrop-blur-md">
+    <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3 text-xs font-mono">
+      
+      <!-- Reading Mode Switcher -->
+      <div class="flex items-center space-x-1.5 bg-card border border-borderSubtle p-1 rounded-xl">
+        <span class="text-[10px] text-neutral-500 uppercase px-2">MODE:</span>
+        <button id="btnDeepDive" onclick="setReadingMode('deep')" class="px-2.5 py-1 rounded-lg text-white bg-crimson font-bold transition">
+          DEEP TECH DIVE
+        </button>
+        <button id="btn60sSkim" onclick="setReadingMode('skim')" class="px-2.5 py-1 rounded-lg text-neutral-400 hover:text-white transition">
+          ⚡ 60s EXECUTIVE SKIM
+        </button>
+      </div>
+
+      <!-- Typography & Size Customizer -->
+      <div class="flex items-center space-x-4">
+        <!-- Font family switch -->
+        <div class="flex items-center space-x-1 border border-borderSubtle rounded-lg p-0.5 bg-card">
+          <button onclick="setFontStyle('serif')" id="btnFontSerif" class="px-2 py-0.5 rounded text-[11px] bg-neutral-800 text-white font-serif">Serif</button>
+          <button onclick="setFontStyle('sans')" id="btnFontSans" class="px-2 py-0.5 rounded text-[11px] text-neutral-400 font-sans hover:text-white">Sans</button>
+        </div>
+
+        <!-- Text size controls -->
+        <div class="flex items-center space-x-1">
+          <span class="text-neutral-500 text-[10px]">TEXT:</span>
+          <button onclick="changeFontSize(-1)" class="w-6 h-6 rounded bg-card border border-borderSubtle hover:border-neutral-600 text-white flex items-center justify-center font-bold">A-</button>
+          <button onclick="changeFontSize(1)" class="w-6 h-6 rounded bg-card border border-borderSubtle hover:border-neutral-600 text-white flex items-center justify-center font-bold">A+</button>
+        </div>
+
+        <!-- Audio Quick Trigger -->
+        <button onclick="toggleAudioPlayer()" class="px-3 py-1 rounded-xl bg-neutral-900 border border-cyberCyan/40 text-cyberCyan hover:bg-cyberCyan/10 transition flex items-center gap-1.5">
+          <svg class="w-3 h-3 fill-current animate-pulse" viewBox="0 0 24 24"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
+          <span id="navAudioText">Audio Brief</span>
+        </button>
+      </div>
+
     </div>
   </section>
 
@@ -170,52 +245,63 @@
   <main class="max-w-7xl mx-auto px-4 sm:px-6 py-8">
     <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
       
-      <!-- LEFT EDITORIAL COLUMN (Hero & Longform Report) -->
+      <!-- LEFT EDITORIAL COLUMN -->
       <article class="lg:col-span-8 space-y-8">
         
-        <!-- Hero Meta Strip -->
+        <!-- Header Meta Strip -->
         <div class="space-y-4">
           <div class="flex flex-wrap items-center gap-3 text-xs font-mono">
-            <span class="px-2.5 py-1 rounded bg-crimson/15 text-crimson border border-crimson/30 font-bold tracking-wider uppercase">CRITICAL HARDWARE INTEL</span>
+            <span class="px-2.5 py-1 rounded bg-crimson/15 text-crimson border border-crimson/30 font-bold tracking-wider uppercase">SOVEREIGN HARDWARE INTEL</span>
             <span class="text-neutral-500">•</span>
-            <span class="text-neutral-400">4 MIN READ</span>
+            <span class="text-neutral-400">4 MIN READ (860 WORDS)</span>
             <span class="text-neutral-500">•</span>
             <span class="text-neutral-400">OCT 25, 2026 // 22:15 IST</span>
             <span class="text-neutral-500">•</span>
             <span class="text-phosphor font-semibold flex items-center gap-1">
-              <span class="w-1.5 h-1.5 rounded-full bg-phosphor"></span> PEER VERIFIED
+              <span class="w-1.5 h-1.5 rounded-full bg-phosphor animate-pulse"></span> VERIFIED BENCHMARK
             </span>
           </div>
 
-          <!-- Hero Main Headline -->
+          <!-- Headline -->
           <h1 class="text-3xl sm:text-4xl md:text-5xl font-black text-white tracking-tight leading-[1.12]">
             India AI Mission: ₹10,372 Cr GPU Compute Tender Receives 18 Bids From Global & Local Cloud Giants
           </h1>
 
-          <!-- Author Byline & Audio Listen Bar -->
+          <!-- Author Byline & Social Interactions -->
           <div class="flex flex-col sm:flex-row sm:items-center justify-between border-y border-borderSubtle py-3.5 gap-4">
             <div class="flex items-center space-x-3">
               <div class="w-10 h-10 rounded-full bg-neutral-800 border border-neutral-700 flex items-center justify-center font-mono font-bold text-sm text-crimson">
                 CX
               </div>
               <div>
-                <div class="text-sm font-bold text-white">Cultynex Strategic Intelligence Desk</div>
-                <div class="text-[11px] font-mono text-neutral-500">Field Research // Silicon & Sovereign Infra</div>
+                <div class="text-sm font-bold text-white flex items-center gap-2">
+                  <span>Cultynex Strategic Intelligence Desk</span>
+                  <span class="text-[10px] font-mono bg-neutral-800 px-1.5 py-0.5 rounded text-neutral-400">AUTHOR</span>
+                </div>
+                <div class="text-[11px] font-mono text-neutral-500">Field Research // Silicon Interconnects & Sovereign Infra</div>
               </div>
             </div>
 
-            <!-- Audio Listen Simulator -->
-            <div class="flex items-center space-x-2 bg-neutral-900 border border-borderSubtle px-3 py-1.5 rounded-xl text-xs font-mono">
-              <button id="btnAudioPlay" onclick="toggleAudio()" class="w-6 h-6 rounded-full bg-crimson hover:bg-red-600 text-white flex items-center justify-center transition">
-                <svg id="audioIcon" class="w-3 h-3 fill-current ml-0.5" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+            <!-- Interactive Action Icons -->
+            <div class="flex items-center space-x-2">
+              <button onclick="toggleBookmarkArticle()" id="btnBookmarkHero" class="p-2 rounded-xl bg-card border border-borderSubtle hover:border-neutral-600 text-neutral-300 hover:text-amberGlow transition" title="Save to offline bookmarks">
+                <svg class="w-4 h-4 fill-none stroke-current" stroke-width="2" viewBox="0 0 24 24"><path d="M17 3H7c-1.1 0-2 .9-2 2v16l7-3 7 3V5c0-1.1-.9-2-2-2z"/></svg>
               </button>
-              <span id="audioText" class="text-neutral-300">Listen to Audio Brief (3:14)</span>
+
+              <button onclick="copyCurrentURL()" class="p-2 rounded-xl bg-card border border-borderSubtle hover:border-neutral-600 text-neutral-300 hover:text-white transition" title="Copy shareable link">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+              </button>
+
+              <button onclick="shareToTelegram()" class="px-3 py-1.5 rounded-xl bg-sky-600/20 border border-sky-500/40 text-sky-400 hover:bg-sky-600 hover:text-white text-xs font-mono font-bold transition flex items-center gap-1.5">
+                <svg class="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M12 0C5.37 0 0 5.37 0 12s5.37 12 12 12 12-5.37 12-12S18.63 0 12 0zm5.56 8.16l-1.92 9.07c-.14.65-.53.81-1.07.51l-2.96-2.18-1.43 1.38c-.16.16-.29.29-.6.29l.21-3.03 5.52-4.99c.24-.21-.05-.33-.37-.12l-6.82 4.29-2.94-.92c-.64-.2-.65-.64.13-.95l11.48-4.42c.53-.2 1 .13.86.87z"/></svg>
+                <span>Share</span>
+              </button>
             </div>
           </div>
         </div>
 
-        <!-- Featured High-Res Lead Imagery -->
-        <figure class="relative rounded-2xl overflow-hidden border border-borderSubtle group bg-card">
+        <!-- Featured High-Res Imagery with Interactive Hotspots -->
+        <figure class="relative rounded-2xl overflow-hidden border border-borderSubtle group bg-card shadow-2xl">
           <img 
             id="mainHeroImg"
             src="https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1600&q=85" 
@@ -223,6 +309,17 @@
             class="w-full h-[360px] sm:h-[460px] object-cover transition-transform duration-700 group-hover:scale-105"
           >
           <div class="absolute inset-0 bg-gradient-to-t from-pitch via-pitch/20 to-transparent"></div>
+          
+          <!-- Interactive Hotspot 1 -->
+          <div class="absolute top-1/3 left-1/4 group/hotspot">
+            <button onclick="showJargonPopup('interconnect')" class="w-7 h-7 rounded-full bg-crimson/80 border-2 border-white text-white font-mono text-xs font-bold flex items-center justify-center animate-bounce shadow-lg shadow-crimson/50">
+              +
+            </button>
+            <div class="hidden group-hover/hotspot:block absolute left-9 top-0 bg-pitch/95 border border-borderSubtle text-[11px] font-mono text-neutral-300 p-2.5 rounded-lg w-48 backdrop-blur-md shadow-xl pointer-events-none">
+              <strong class="text-white block">Die-to-Die Interconnect:</strong> Ultra-dense 3D hybrid bonding micro-bumps.
+            </div>
+          </div>
+
           <figcaption class="absolute bottom-4 left-4 right-4 flex justify-between items-end text-[11px] font-mono text-neutral-400">
             <span>FIGURE 01 // SUB-2NM INTEGRATED DIE WAFER STACKING</span>
             <span class="text-neutral-500 hidden sm:inline">HIGH-NA EUV SCANNER ARCHITECTURE</span>
@@ -230,7 +327,7 @@
         </figure>
 
         <!-- Executive Strategic Vectors & TL;DR Box -->
-        <section class="bg-card/90 rounded-2xl border border-borderSubtle border-l-4 border-l-phosphor p-6 space-y-3.5 shadow-2xl">
+        <section class="bg-card/95 rounded-2xl border border-borderSubtle border-l-4 border-l-phosphor p-6 space-y-3.5 shadow-2xl">
           <div class="flex items-center justify-between">
             <span class="text-xs font-mono font-bold text-phosphor tracking-widest uppercase flex items-center gap-2">
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
@@ -242,95 +339,147 @@
           <ul class="space-y-2.5 text-sm text-neutral-300">
             <li class="flex items-start gap-2.5">
               <span class="text-phosphor mt-1 font-bold">•</span>
-              <span><strong class="text-white">Cloud Cost Collapse:</strong> Indian startups and AI labs gain subsidized compute access at 40–50% below standard international hyperscaler tariffs.</span>
+              <span><strong class="text-white">Cloud Cost Collapse:</strong> Indian startups and AI labs gain subsidized compute access at 40–50% below standard international hyperscaler spot tariffs.</span>
             </li>
             <li class="flex items-start gap-2.5">
               <span class="text-phosphor mt-1 font-bold">•</span>
-              <span><strong class="text-white">Sovereign AI Security:</strong> Eliminates structural dependency on overseas clusters for local language training, legal foundation models, and defense-grade analytics.</span>
+              <span><strong class="text-white">Sovereign AI Security:</strong> Removes dependency on overseas clusters for Indic language training, legal foundation models, and defense intelligence pipelines.</span>
             </li>
             <li class="flex items-start gap-2.5">
               <span class="text-phosphor mt-1 font-bold">•</span>
-              <span><strong class="text-white">Multi-Tenancy Architecture:</strong> High-bandwidth direct interconnects dedicated to sovereign foundation models with liquid-cooled multi-megawatt capacity.</span>
+              <span><strong class="text-white">Multi-Tenancy Architecture:</strong> High-bandwidth direct interconnects dedicated to sovereign foundation models with liquid-cooled multi-megawatt facilities.</span>
             </li>
           </ul>
         </section>
 
-        <!-- In-Depth Investigative Longform Article -->
-        <section class="space-y-6 text-neutral-300 font-serif text-lg leading-relaxed pt-2">
+        <!-- Dynamic Article Body (Supports 60s Skim vs Deep Dive) -->
+        <section id="articleBodyContainer" class="article-content font-mode-serif text-mode-base text-neutral-300 space-y-6 pt-2">
           
-          <p class="first-letter:text-5xl first-letter:font-black first-letter:text-crimson first-letter:mr-3 first-letter:float-left font-sans text-base sm:text-lg leading-relaxed text-neutral-200">
-            The Ministry of Electronics and Information Technology (MeitY) has officially closed the qualification round for its landmark compute infrastructure tender. Clearing the runway for over 10,000 top-tier accelerators to be deployed within Indian data borders, this shift alters the economics of domestic foundation models through 2028.
-          </p>
+          <!-- Section 1 -->
+          <div class="article-section">
+            <p class="first-letter:text-5xl first-letter:font-black first-letter:text-crimson first-letter:mr-3 first-letter:float-left font-sans text-base sm:text-lg leading-relaxed text-neutral-200">
+              The Ministry of Electronics and Information Technology (MeitY) has officially closed the qualification round for its landmark compute infrastructure tender. Clearing the runway for over 10,000 top-tier accelerators to be deployed within Indian data borders, this initiative alters the macroeconomics of sovereign foundation models through 2028.
+            </p>
 
-          <h2 class="font-sans font-extrabold text-2xl sm:text-3xl text-white tracking-tight pt-4">
-            1. The Structural Bottleneck: Why Compute Subsidies Matter
-          </h2>
-          <p>
-            For the past three years, domestic AI founders faced a stark choice: export capital to overseas hyperscalers at exorbitant spot rates or settle for quantized local inference. The tender establishes a tiered subsidization matrix where pre-vetted AI research institutions and frontier startups receive non-dilutive GPU-hour allocations backed by central grants.
-          </p>
+            <h2 class="font-sans font-extrabold text-2xl sm:text-3xl text-white tracking-tight pt-4">
+              1. The Structural Bottleneck: Why Compute Subsidies Matter
+            </h2>
+            <p>
+              For three years, domestic AI founders faced a brutal capital barrier: export balance sheets to foreign hyperscalers at peak spot rates or settle for quantized local inference. The newly sanctioned framework establishes a tiered subsidization pool wherein pre-vetted AI research institutions receive non-dilutive compute allocations, backed by central grants.
+            </p>
 
-          <!-- Pull Quote -->
-          <blockquote class="my-6 border-l-2 border-crimson pl-6 py-2 italic font-serif text-xl sm:text-2xl text-white bg-neutral-900/40 rounded-r-xl">
-            "Sovereignty without domestic silicon compute capacity is merely simulated autonomy. You cannot regulate what you cannot train on your own soil."
-          </blockquote>
+            <!-- Interactive Terminology Highlight inline -->
+            <p>
+              Deploying these clusters requires next-generation <span class="jargon-term" onclick="showJargonPopup('sovereign')">Sovereign GPU Clusters</span> coupled with <span class="jargon-term" onclick="showJargonPopup('optics')">Co-Packaged Optics</span> to mitigate signal attenuation over traditional copper switches.
+            </p>
 
-          <h2 class="font-sans font-extrabold text-2xl sm:text-3xl text-white tracking-tight pt-4">
-            2. Node Evolution: 3nm vs 1.4nm Angstrom Benchmark
-          </h2>
-          <p>
-            As hyperscalers prepare to land these workloads, the underlying silicon nodes are shifting from standard FinFET topologies toward dual-sided power delivery (BSPDN) and Gate-All-Around (GAA) nanosheets:
-          </p>
-
-          <!-- Technical Comparison Matrix Table -->
-          <div class="overflow-x-auto my-6 border border-borderSubtle rounded-xl bg-card">
-            <table class="w-full text-left font-sans text-xs">
-              <thead class="bg-neutral-900/90 text-neutral-400 font-mono uppercase border-b border-borderSubtle">
-                <tr>
-                  <th class="p-3.5">Architecture Vector</th>
-                  <th class="p-3.5">TSMC N3E (Current 3nm)</th>
-                  <th class="p-3.5 text-crimson">Intel 14A / TSMC A16 (1.4nm)</th>
-                  <th class="p-3.5 text-phosphor">Net Efficiency Gain</th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-borderSubtle font-mono text-neutral-300">
-                <tr>
-                  <td class="p-3.5 font-bold text-white">Transistor Topology</td>
-                  <td class="p-3.5">FinFET / Nanosheet Gen 1</td>
-                  <td class="p-3.5 text-crimson">GAA RibbonFET + PowerVia</td>
-                  <td class="p-3.5 text-phosphor">+28% Drive Current</td>
-                </tr>
-                <tr>
-                  <td class="p-3.5 font-bold text-white">Interconnect Resistance</td>
-                  <td class="p-3.5">Standard Cu/Ru Top Routing</td>
-                  <td class="p-3.5 text-crimson">Backside Power Delivery</td>
-                  <td class="p-3.5 text-phosphor">-35% IR Drop Collapse</td>
-                </tr>
-                <tr>
-                  <td class="p-3.5 font-bold text-white">Cluster TDP per 100k H100s</td>
-                  <td class="p-3.5">~102 MegaWatts</td>
-                  <td class="p-3.5 text-crimson">~64 MegaWatts</td>
-                  <td class="p-3.5 text-phosphor">+37% Compute/Watt</td>
-                </tr>
-              </tbody>
-            </table>
+            <!-- Pull Quote -->
+            <blockquote class="my-6 border-l-2 border-crimson pl-6 py-2 italic text-xl sm:text-2xl text-white bg-neutral-900/40 rounded-r-xl">
+              "Sovereignty without domestic silicon compute capacity is merely simulated autonomy. You cannot regulate what you cannot train on your own soil."
+            </blockquote>
           </div>
 
-          <h2 class="font-sans font-extrabold text-2xl sm:text-3xl text-white tracking-tight pt-4">
-            3. Sovereign Fallout: The 2026–2028 Horizon
-          </h2>
-          <p>
-            With 18 global and domestic consortiums competing to provision clusters in Noida, Navi Mumbai, and Bengaluru, local latency bottlenecks are projected to drop sub-3 milliseconds. The transition marks the beginning of India's second computing inflection—moving from an IT services consumer to a builder of foundational intelligence stacks.
-          </p>
+          <!-- Section 2 -->
+          <div class="article-section">
+            <h2 class="font-sans font-extrabold text-2xl sm:text-3xl text-white tracking-tight pt-4">
+              2. Node Evolution: 3nm vs 1.4nm Angstrom Benchmark
+            </h2>
+            <p>
+              As hyperscalers prepare to land these workloads in Noida and Navi Mumbai, the underlying silicon architecture is undergoing a tectonic shift. Moving away from standard FinFET topologies, foundries are utilizing <span class="jargon-term" onclick="showJargonPopup('litho')">High-NA EUV Scanners</span> to pattern Gate-All-Around (GAA) nanosheets with backside power delivery networks (BSPDN).
+            </p>
 
+            <!-- Technical Comparison Matrix Table -->
+            <div class="overflow-x-auto my-6 border border-borderSubtle rounded-xl bg-card">
+              <table class="w-full text-left font-sans text-xs">
+                <thead class="bg-neutral-900/90 text-neutral-400 font-mono uppercase border-b border-borderSubtle">
+                  <tr>
+                    <th class="p-3.5">Architecture Vector</th>
+                    <th class="p-3.5">TSMC N3E (Current 3nm)</th>
+                    <th class="p-3.5 text-crimson">Intel 14A / TSMC A16 (1.4nm)</th>
+                    <th class="p-3.5 text-phosphor">Net Efficiency Gain</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-borderSubtle font-mono text-neutral-300">
+                  <tr>
+                    <td class="p-3.5 font-bold text-white">Transistor Topology</td>
+                    <td class="p-3.5">FinFET / Nanosheet Gen 1</td>
+                    <td class="p-3.5 text-crimson">GAA RibbonFET + PowerVia</td>
+                    <td class="p-3.5 text-phosphor">+28% Drive Current</td>
+                  </tr>
+                  <tr>
+                    <td class="p-3.5 font-bold text-white">Interconnect Resistance</td>
+                    <td class="p-3.5">Standard Cu/Ru Top Routing</td>
+                    <td class="p-3.5 text-crimson">Backside Power Delivery</td>
+                    <td class="p-3.5 text-phosphor">-35% IR Drop Collapse</td>
+                  </tr>
+                  <tr>
+                    <td class="p-3.5 font-bold text-white">Cluster TDP per 100k H100s</td>
+                    <td class="p-3.5">~102 MegaWatts</td>
+                    <td class="p-3.5 text-crimson">~64 MegaWatts</td>
+                    <td class="p-3.5 text-phosphor">+37% Compute/Watt</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Section 3 -->
+          <div class="article-section">
+            <h2 class="font-sans font-extrabold text-2xl sm:text-3xl text-white tracking-tight pt-4">
+              3. Strategic Fallout: Winners, Losers & The 2026–2028 Horizon
+            </h2>
+            <p>
+              With 18 global and domestic consortiums competing to provision clusters in Noida, Navi Mumbai, and Bengaluru, local latency bottlenecks are projected to drop sub-3 milliseconds. The transition marks the beginning of India's second computing inflection—moving from an IT services consumer to a builder of foundational intelligence stacks.
+            </p>
+          </div>
+
+        </section>
+
+        <!-- IN-ARTICLE INTERACTIVE SILICON QUIZ WIDGET -->
+        <section class="bg-gradient-to-br from-card via-[#121622] to-card border border-borderSubtle rounded-2xl p-6 sm:p-7 shadow-2xl relative overflow-hidden">
+          <div class="absolute -right-8 -bottom-8 w-32 h-32 bg-crimson/10 rounded-full blur-2xl"></div>
+
+          <div class="flex items-center justify-between border-b border-borderSubtle pb-3 mb-4">
+            <div class="flex items-center space-x-2">
+              <span class="w-2 h-2 rounded-full bg-crimson animate-ping"></span>
+              <span class="font-mono text-xs font-bold text-white uppercase tracking-wider">INTEL EVALUATION // QUIZ</span>
+            </div>
+            <span class="text-[10px] font-mono text-neutral-400">TEST YOUR HARDWARE MASTERY</span>
+          </div>
+
+          <h3 class="text-base sm:text-lg font-bold text-white mb-2">
+            What is the primary operational advantage of Backside Power Delivery (BSPDN) in sub-1.4nm chips?
+          </h3>
+          <p class="text-xs text-neutral-400 font-mono mb-4">Select the correct technical mechanism:</p>
+
+          <div class="space-y-2.5 font-mono text-xs" id="quizOptionsContainer">
+            <button onclick="handleQuizAnswer(0)" class="quiz-btn w-full p-3 rounded-xl border border-borderSubtle bg-neutral-900/80 hover:bg-neutral-800 text-left text-neutral-300 transition flex items-center justify-between">
+              <span>A) Routes power lines beneath transistors, eliminating signal-power wire congestion & voltage drop.</span>
+              <span class="quiz-indicator text-neutral-600 font-bold">&rarr;</span>
+            </button>
+
+            <button onclick="handleQuizAnswer(1)" class="quiz-btn w-full p-3 rounded-xl border border-borderSubtle bg-neutral-900/80 hover:bg-neutral-800 text-left text-neutral-300 transition flex items-center justify-between">
+              <span>B) Replaces all silicon substrate layers with pure diamond thermal diffusers.</span>
+              <span class="quiz-indicator text-neutral-600 font-bold">&rarr;</span>
+            </button>
+
+            <button onclick="handleQuizAnswer(2)" class="quiz-btn w-full p-3 rounded-xl border border-borderSubtle bg-neutral-900/80 hover:bg-neutral-800 text-left text-neutral-300 transition flex items-center justify-between">
+              <span>C) Converts GPU compute transistors into analog optical mirrors for zero power draw.</span>
+              <span class="quiz-indicator text-neutral-600 font-bold">&rarr;</span>
+            </button>
+          </div>
+
+          <!-- Quiz Feedback Box -->
+          <div id="quizResultBox" class="hidden mt-4 p-3.5 rounded-xl border text-xs font-mono leading-relaxed"></div>
         </section>
 
         <!-- Social Share & Community Discuss Bar -->
         <div class="pt-6 border-t border-borderSubtle flex flex-col sm:flex-row items-center justify-between gap-4 font-mono text-xs">
           <div class="flex items-center space-x-2">
             <span class="text-neutral-500 uppercase">Share Intelligence:</span>
-            <button onclick="copyArticleLink()" class="px-3 py-1.5 rounded-lg border border-borderSubtle bg-neutral-900 hover:bg-neutral-800 text-neutral-300 transition flex items-center gap-1.5">
+            <button onclick="copyCurrentURL()" class="px-3 py-1.5 rounded-lg border border-borderSubtle bg-neutral-900 hover:bg-neutral-800 text-neutral-300 transition flex items-center gap-1.5">
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
-              <span id="copyBtnText">Copy URL</span>
+              <span id="btnCopyBottom">Copy URL</span>
             </button>
           </div>
 
@@ -367,7 +516,7 @@
           </button>
         </div>
 
-        <!-- Live Transit Radar (Delhi-NCR & RRTS) -->
+        <!-- Live Delhi-NCR & RRTS Transit Radar -->
         <div class="rounded-2xl border border-borderSubtle bg-card p-5 space-y-4">
           <div class="flex items-center justify-between border-b border-borderSubtle pb-3">
             <div class="flex items-center space-x-2">
@@ -404,7 +553,7 @@
           </div>
         </div>
 
-        <!-- Trending Intel Wire -->
+        <!-- Trending Intel Wire with Quick Previews -->
         <div class="rounded-2xl border border-borderSubtle bg-card p-5 space-y-4">
           <div class="flex items-center justify-between border-b border-borderSubtle pb-2.5">
             <span class="font-mono text-xs font-bold text-white uppercase tracking-wider">TRENDING INTEL WIRES</span>
@@ -412,39 +561,39 @@
           </div>
 
           <div class="space-y-3.5">
-            <article class="space-y-1">
+            <article onclick="openQuickPreview('Sub-2nm Foundry Capacities Booked', 'Hyperscalers have locked over 85% of TSMC and Intel 14A leading-edge capacity through late 2027.')" class="cursor-pointer group p-2 rounded-xl hover:bg-neutral-900/60 transition space-y-1">
               <div class="flex items-center space-x-2 text-[10px] font-mono">
                 <span class="text-crimson font-bold">#01 // SILICON</span>
                 <span class="text-neutral-500">18m ago</span>
               </div>
-              <a href="#article" class="text-sm font-semibold text-white hover:text-crimson transition leading-snug block">
+              <div class="text-sm font-semibold text-white group-hover:text-crimson transition leading-snug">
                 Sub-2nm Foundry Capacities Fully Booked Through Q4 2027 by Hyperscalers
-              </a>
+              </div>
             </article>
 
-            <article class="space-y-1">
+            <article onclick="openQuickPreview('Small Modular Nuclear Reactors for AI', 'Hyperscale campus developers secure regulatory fast-track for on-site 300MW micro-reactors.')" class="cursor-pointer group p-2 rounded-xl hover:bg-neutral-900/60 transition space-y-1">
               <div class="flex items-center space-x-2 text-[10px] font-mono">
                 <span class="text-cyberCyan font-bold">#02 // ENERGY</span>
                 <span class="text-neutral-500">42m ago</span>
               </div>
-              <a href="#article" class="text-sm font-semibold text-white hover:text-cyberCyan transition leading-snug block">
+              <div class="text-sm font-semibold text-white group-hover:text-cyberCyan transition leading-snug">
                 Direct Small Modular Nuclear Reactors (SMRs) Cleared for Hyperscale AI Campuses
-              </a>
+              </div>
             </article>
 
-            <article class="space-y-1">
+            <article onclick="openQuickPreview('Harmonic Drive Actuator Crunch', 'Humanoid robotics production runs into extreme planetary gear reducer lead times exceeding 14 months.')" class="cursor-pointer group p-2 rounded-xl hover:bg-neutral-900/60 transition space-y-1">
               <div class="flex items-center space-x-2 text-[10px] font-mono">
                 <span class="text-phosphor font-bold">#03 // ROBOTICS</span>
                 <span class="text-neutral-500">1h ago</span>
               </div>
-              <a href="#article" class="text-sm font-semibold text-white hover:text-phosphor transition leading-snug block">
+              <div class="text-sm font-semibold text-white group-hover:text-phosphor transition leading-snug">
                 Harmonic Drive Actuator Backlog Surpasses Global Automotive Supply Chains
-              </a>
+              </div>
             </article>
           </div>
         </div>
 
-        <!-- Interactive AI Prompt Simulator -->
+        <!-- Interactive AI Command Simulator -->
         <div class="rounded-2xl border border-borderSubtle bg-card p-5 space-y-3">
           <div class="flex items-center space-x-2">
             <svg class="w-4 h-4 text-cyberCyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
@@ -457,7 +606,7 @@
             <input 
               id="cmdInput" 
               type="text" 
-              placeholder="e.g. compare 3nm vs 1.4nm power efficiency"
+              placeholder="e.g. 3nm vs 1.4nm, transit, tsmc"
               class="w-full bg-pitch border border-neutral-800 text-xs text-white px-3 py-2.5 rounded-xl font-mono focus:outline-none focus:border-cyberCyan transition"
             >
             <button onclick="executeCommand()" class="w-full py-2 bg-neutral-900 hover:bg-neutral-800 border border-borderSubtle text-xs font-mono font-bold text-neutral-300 rounded-xl transition">
@@ -484,7 +633,7 @@
       <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
         
         <!-- Card 1 -->
-        <article class="bg-card rounded-2xl border border-borderSubtle overflow-hidden group hover:border-neutral-700 transition flex flex-col justify-between">
+        <article class="bg-card rounded-2xl border border-borderSubtle overflow-hidden group hover:border-phosphor/50 transition duration-300 flex flex-col justify-between shadow-xl">
           <div class="h-44 overflow-hidden relative">
             <img src="https://images.unsplash.com/photo-1629654297299-c8506221ca97?auto=format&fit=crop&w=700&q=80" alt="Photonic Interconnect" class="w-full h-full object-cover group-hover:scale-105 transition duration-500">
             <span class="absolute top-3 left-3 bg-pitch/80 backdrop-blur-md text-phosphor font-mono text-[10px] font-bold px-2.5 py-1 rounded border border-phosphor/30 uppercase">OPTICS</span>
@@ -492,21 +641,21 @@
           <div class="p-5 space-y-2.5 flex-1 flex flex-col justify-between">
             <div>
               <div class="text-[11px] font-mono text-neutral-500">OCT 24, 2026 // 3 MIN READ</div>
-              <h3 class="text-base font-bold text-white group-hover:text-crimson transition leading-snug mt-1">
+              <h3 class="text-base font-bold text-white group-hover:text-phosphor transition leading-snug mt-1">
                 Co-Packaged Optics Replaces Copper in 800G Hyperscaler Switches
               </h3>
               <p class="text-xs text-neutral-400 mt-2 line-clamp-2">
                 Physical limits of copper traces force switch manufacturers toward optical transceivers bonded directly to compute dies.
               </p>
             </div>
-            <a href="https://t.me/cultynex_daily" class="text-xs font-mono text-crimson font-bold pt-2 flex items-center gap-1">
-              Read Brief &rarr;
-            </a>
+            <button onclick="openQuickPreview('Co-Packaged Optics Breakthrough', 'Detailed overview of optical engine integration with PCIe Gen 7 architectures.')" class="text-xs font-mono text-phosphor font-bold pt-2 flex items-center gap-1 text-left">
+              Read Interactive Preview &rarr;
+            </button>
           </div>
         </article>
 
         <!-- Card 2 -->
-        <article class="bg-card rounded-2xl border border-borderSubtle overflow-hidden group hover:border-neutral-700 transition flex flex-col justify-between">
+        <article class="bg-card rounded-2xl border border-borderSubtle overflow-hidden group hover:border-cyberCyan/50 transition duration-300 flex flex-col justify-between shadow-xl">
           <div class="h-44 overflow-hidden relative">
             <img src="https://images.unsplash.com/photo-1550751827-4bd374c3f58b?auto=format&fit=crop&w=700&q=80" alt="Liquid Cooling" class="w-full h-full object-cover group-hover:scale-105 transition duration-500">
             <span class="absolute top-3 left-3 bg-pitch/80 backdrop-blur-md text-cyberCyan font-mono text-[10px] font-bold px-2.5 py-1 rounded border border-cyberCyan/30 uppercase">THERMAL</span>
@@ -514,21 +663,21 @@
           <div class="p-5 space-y-2.5 flex-1 flex flex-col justify-between">
             <div>
               <div class="text-[11px] font-mono text-neutral-500">OCT 23, 2026 // 5 MIN READ</div>
-              <h3 class="text-base font-bold text-white group-hover:text-crimson transition leading-snug mt-1">
+              <h3 class="text-base font-bold text-white group-hover:text-cyberCyan transition leading-snug mt-1">
                 Direct Two-Phase Immersion Cooling Mandated for 1kW Accelerator Racks
               </h3>
               <p class="text-xs text-neutral-400 mt-2 line-clamp-2">
                 Air cooling officially hits thermal walls as rack densities surpass 120kW per cabinet in new generation training facilities.
               </p>
             </div>
-            <a href="https://t.me/cultynex_daily" class="text-xs font-mono text-crimson font-bold pt-2 flex items-center gap-1">
-              Read Brief &rarr;
-            </a>
+            <button onclick="openQuickPreview('Direct Two-Phase Immersion Standard', 'Engineering benchmarks of dielectric fluids under continuous 90°C thermal load.')" class="text-xs font-mono text-cyberCyan font-bold pt-2 flex items-center gap-1 text-left">
+              Read Interactive Preview &rarr;
+            </button>
           </div>
         </article>
 
         <!-- Card 3 -->
-        <article class="bg-card rounded-2xl border border-borderSubtle overflow-hidden group hover:border-neutral-700 transition flex flex-col justify-between">
+        <article class="bg-card rounded-2xl border border-borderSubtle overflow-hidden group hover:border-crimson/50 transition duration-300 flex flex-col justify-between shadow-xl">
           <div class="h-44 overflow-hidden relative">
             <img src="https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?auto=format&fit=crop&w=700&q=80" alt="Lithography Scanner" class="w-full h-full object-cover group-hover:scale-105 transition duration-500">
             <span class="absolute top-3 left-3 bg-pitch/80 backdrop-blur-md text-crimson font-mono text-[10px] font-bold px-2.5 py-1 rounded border border-crimson/30 uppercase">LITHOGRAPHY</span>
@@ -543,9 +692,9 @@
                 Thermal expansion of anamorphic mirrors at 0.55 NA requires active helium-purged cooling chambers during continuous exposures.
               </p>
             </div>
-            <a href="https://t.me/cultynex_daily" class="text-xs font-mono text-crimson font-bold pt-2 flex items-center gap-1">
-              Read Brief &rarr;
-            </a>
+            <button onclick="openQuickPreview('High-NA EUV Scanner Teardown', 'How ASML anamorphic optics resolve sub-8nm pitch limits without double patterning.')" class="text-xs font-mono text-crimson font-bold pt-2 flex items-center gap-1 text-left">
+              Read Interactive Preview &rarr;
+            </button>
           </div>
         </article>
 
@@ -554,7 +703,90 @@
 
   </main>
 
-  <!-- Lead Magnet Modal -->
+  <!-- FLOATING AUDIO SYNTHESIZER & TELEMETRY PLAYER -->
+  <aside id="audioPlayerModal" class="fixed bottom-4 left-4 right-4 sm:left-auto sm:right-6 sm:w-96 z-50 bg-[#0A0D14]/95 border border-cyberCyan/40 rounded-2xl p-4 shadow-2xl backdrop-blur-xl space-y-3 transition-transform duration-300 translate-y-[200%]">
+    <div class="flex items-center justify-between border-b border-borderSubtle pb-2">
+      <div class="flex items-center space-x-2">
+        <span class="w-2 h-2 rounded-full bg-cyberCyan animate-ping"></span>
+        <span class="font-mono text-[11px] font-bold text-white uppercase tracking-wider">AI AUDIO BRIEFING // SYNTHESIS</span>
+      </div>
+      <button onclick="toggleAudioPlayer()" class="text-neutral-400 hover:text-white text-base">&times;</button>
+    </div>
+
+    <!-- Animated Waveform Visualizer -->
+    <div class="flex items-end justify-center space-x-1 h-10 py-1 bg-pitch rounded-xl border border-neutral-800" id="waveform">
+      <div class="audio-bar w-1.5 bg-cyberCyan rounded-full h-3"></div>
+      <div class="audio-bar w-1.5 bg-cyberCyan rounded-full h-6"></div>
+      <div class="audio-bar w-1.5 bg-cyberCyan rounded-full h-4"></div>
+      <div class="audio-bar w-1.5 bg-cyberCyan rounded-full h-8"></div>
+      <div class="audio-bar w-1.5 bg-cyberCyan rounded-full h-5"></div>
+      <div class="audio-bar w-1.5 bg-cyberCyan rounded-full h-7"></div>
+      <div class="audio-bar w-1.5 bg-cyberCyan rounded-full h-3"></div>
+      <div class="audio-bar w-1.5 bg-cyberCyan rounded-full h-6"></div>
+      <div class="audio-bar w-1.5 bg-cyberCyan rounded-full h-4"></div>
+      <div class="audio-bar w-1.5 bg-cyberCyan rounded-full h-2"></div>
+    </div>
+
+    <!-- Audio Player Controls -->
+    <div class="flex items-center justify-between font-mono text-xs">
+      <div class="flex items-center space-x-2">
+        <button id="btnPlayerToggle" onclick="handleAudioPlay()" class="w-8 h-8 rounded-full bg-cyberCyan text-black flex items-center justify-center font-bold transition hover:scale-105">
+          <svg id="playIcon" class="w-3.5 h-3.5 fill-current ml-0.5" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+        </button>
+        <div class="text-[11px]">
+          <div class="text-white font-semibold">India AI Compute Brief</div>
+          <div id="audioTimer" class="text-neutral-400">00:00 / 03:14</div>
+        </div>
+      </div>
+
+      <div class="flex items-center space-x-1.5">
+        <button onclick="changeAudioSpeed(1)" class="speed-btn px-2 py-0.5 rounded bg-neutral-800 text-[10px] text-white">1x</button>
+        <button onclick="changeAudioSpeed(1.5)" class="speed-btn px-2 py-0.5 rounded bg-neutral-900 text-[10px] text-neutral-400">1.5x</button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- JARGON TERMINOLOGY MODAL / POPUP -->
+  <div id="jargonModal" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center p-4">
+    <div class="bg-surface border border-cyberCyan/40 w-full max-w-sm rounded-2xl p-5 space-y-3 shadow-2xl relative">
+      <button onclick="closeJargonPopup()" class="absolute top-3 right-3 text-neutral-400 hover:text-white text-lg">&times;</button>
+      
+      <div class="flex items-center space-x-2 text-cyberCyan">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        <span class="font-mono text-xs font-bold uppercase tracking-wider">HARDWARE LEXICON</span>
+      </div>
+
+      <h4 id="jargonTitle" class="text-base font-bold text-white">Terminology Definition</h4>
+      <p id="jargonDesc" class="text-xs text-neutral-300 leading-relaxed font-sans"></p>
+
+      <div class="pt-2 border-t border-borderSubtle flex justify-end">
+        <button onclick="closeJargonPopup()" class="px-3 py-1 rounded-lg bg-neutral-800 text-xs font-mono text-white hover:bg-neutral-700">Dismiss</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- QUICK PREVIEW DRAWER -->
+  <div id="previewDrawer" class="fixed inset-y-0 right-0 z-50 w-full sm:w-96 bg-surface border-l border-borderSubtle p-6 space-y-4 shadow-2xl transform translate-x-full transition-transform duration-300 flex flex-col justify-between">
+    <div class="space-y-4">
+      <div class="flex items-center justify-between border-b border-borderSubtle pb-3">
+        <span class="font-mono text-xs font-bold text-phosphor uppercase">INTEL BRIEF PREVIEW</span>
+        <button onclick="closeQuickPreview()" class="text-neutral-400 hover:text-white text-xl">&times;</button>
+      </div>
+      <h3 id="previewDrawerTitle" class="text-lg font-bold text-white leading-snug">Report Title</h3>
+      <p id="previewDrawerBody" class="text-xs text-neutral-300 font-sans leading-relaxed"></p>
+    </div>
+
+    <div class="space-y-2 pt-4 border-t border-borderSubtle font-mono text-xs">
+      <a href="https://t.me/cultynex_daily" target="_blank" class="w-full py-2.5 rounded-xl bg-crimson text-white font-bold flex items-center justify-center gap-1.5">
+        Open Full Story in Telegram &rarr;
+      </a>
+      <button onclick="closeQuickPreview()" class="w-full py-2 rounded-xl bg-neutral-900 text-neutral-400 hover:text-white">
+        Close Preview
+      </button>
+    </div>
+  </div>
+
+  <!-- LEAD MAGNET MODAL -->
   <div id="leadModal" class="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm hidden flex items-center justify-center p-4">
     <div class="bg-surface border border-borderSubtle w-full max-w-md rounded-2xl p-6 space-y-4 shadow-2xl relative">
       <button onclick="closeLeadModal()" class="absolute top-4 right-4 text-neutral-400 hover:text-white text-lg">&times;</button>
@@ -585,6 +817,23 @@
     </div>
   </div>
 
+  <!-- BOOKMARK SAVED DRAWER -->
+  <div id="bookmarkDrawer" class="fixed inset-y-0 left-0 z-50 w-full sm:w-80 bg-surface border-r border-borderSubtle p-5 shadow-2xl transform -translate-x-full transition-transform duration-300 flex flex-col justify-between">
+    <div class="space-y-3">
+      <div class="flex items-center justify-between border-b border-borderSubtle pb-2">
+        <span class="font-mono text-xs font-bold text-amberGlow">SAVED ARTICLES</span>
+        <button onclick="toggleBookmarkPanel()" class="text-neutral-400 hover:text-white text-lg">&times;</button>
+      </div>
+      <div id="bookmarkList" class="space-y-2 text-xs font-mono text-neutral-300">
+        <div class="p-3 bg-card rounded-xl border border-neutral-800">
+          <div class="text-white font-bold mb-1">India AI Mission: ₹10,372 Cr GPU Compute Tender</div>
+          <div class="text-[10px] text-neutral-500">Bookmarked Today</div>
+        </div>
+      </div>
+    </div>
+    <button onclick="toggleBookmarkPanel()" class="w-full py-2 bg-neutral-900 text-neutral-400 font-mono text-xs rounded-xl">Close</button>
+  </div>
+
   <!-- Footer -->
   <footer class="mt-20 border-t border-borderSubtle bg-pitch py-10 px-4 text-center font-mono text-xs text-neutral-500 space-y-3">
     <div class="flex justify-center items-center space-x-6 text-neutral-400">
@@ -596,74 +845,245 @@
     <p>CULTYNEX MEDIA NETWORK // HIGH-VELOCITY STRATEGIC HARDWARE INTELLIGENCE // 2026</p>
   </footer>
 
+  <!-- SCRIPT LOGIC -->
   <script>
-    // Copy URL function
-    function copyArticleLink() {
+    // 1. Reading Progress Bar
+    window.addEventListener('scroll', () => {
+      const docHeight = document.documentElement.scrollHeight - window.innerHeight;
+      const scrolled = (window.scrollY / docHeight) * 100;
+      const bar = document.getElementById('readingProgress');
+      if (bar) bar.style.width = scrolled + '%';
+    });
+
+    // 2. Toast System
+    function showToast(message) {
+      const toast = document.getElementById('toastNotification');
+      const msgElem = document.getElementById('toastMsg');
+      msgElem.innerText = message;
+      toast.classList.remove('translate-y-[-100px]', 'opacity-0');
+      toast.classList.add('translate-y-0', 'opacity-100');
+      setTimeout(() => {
+        toast.classList.add('translate-y-[-100px]', 'opacity-0');
+        toast.classList.remove('translate-y-0', 'opacity-100');
+      }, 2500);
+    }
+
+    // 3. 1-Click Copy URL
+    function copyCurrentURL() {
       const url = window.location.href;
       if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(url).then(() => {
-          showCopySuccess();
-        }).catch(() => fallbackCopy());
+        navigator.clipboard.writeText(url).then(() => showToast("URL copied to clipboard!"));
       } else {
-        fallbackCopy();
+        const dummy = document.createElement("input");
+        document.body.appendChild(dummy);
+        dummy.value = url;
+        dummy.select();
+        document.execCommand("copy");
+        document.body.removeChild(dummy);
+        showToast("URL copied to clipboard!");
       }
     }
 
-    function fallbackCopy() {
-      const input = document.createElement('input');
-      input.value = window.location.href;
-      document.body.appendChild(input);
-      input.select();
-      document.execCommand('copy');
-      document.body.removeChild(input);
-      showCopySuccess();
+    // 4. Share to Telegram
+    function shareToTelegram() {
+      const url = encodeURIComponent(window.location.href);
+      const text = encodeURIComponent("India AI Mission ₹10,372 Cr GPU Tender Intel Breakdown: ");
+      window.open(`https://t.me/share/url?url=${url}&text=${text}`, '_blank');
     }
 
-    function showCopySuccess() {
-      const btnText = document.getElementById('copyBtnText');
-      const old = btnText.innerText;
-      btnText.innerText = "COPIED!";
-      setTimeout(() => { btnText.innerText = old; }, 2000);
-    }
+    // 5. Reading Mode Toggle (60s Skim vs Deep Dive)
+    let currentMode = 'deep';
+    function setReadingMode(mode) {
+      currentMode = mode;
+      const btnDeep = document.getElementById('btnDeepDive');
+      const btnSkim = document.getElementById('btn60sSkim');
+      const article = document.getElementById('articleBodyContainer');
 
-    // Audio Brief Simulator
-    let isPlaying = false;
-    function toggleAudio() {
-      isPlaying = !isPlaying;
-      const icon = document.getElementById('audioIcon');
-      const label = document.getElementById('audioText');
-      if (isPlaying) {
-        icon.innerHTML = '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>';
-        label.innerText = "Playing Audio Brief (Stream active)...";
-        label.classList.add("text-phosphor");
+      if (mode === 'skim') {
+        btnSkim.classList.add('bg-crimson', 'text-white', 'font-bold');
+        btnSkim.classList.remove('text-neutral-400');
+        btnDeep.classList.remove('bg-crimson', 'text-white', 'font-bold');
+        btnDeep.classList.add('text-neutral-400');
+
+        // Hide secondary paragraphs, bold primary hooks
+        const paragraphs = article.querySelectorAll('p:not(:first-child)');
+        paragraphs.forEach((p, idx) => {
+          if (idx % 2 !== 0) p.classList.add('hidden');
+          else p.classList.add('text-white', 'font-medium');
+        });
+        showToast("Executive 60s Skim mode active.");
       } else {
-        icon.innerHTML = '<path d="M8 5v14l11-7z"/>';
-        label.innerText = "Listen to Audio Brief (3:14)";
-        label.classList.remove("text-phosphor");
+        btnDeep.classList.add('bg-crimson', 'text-white', 'font-bold');
+        btnDeep.classList.remove('text-neutral-400');
+        btnSkim.classList.remove('bg-crimson', 'text-white', 'font-bold');
+        btnSkim.classList.add('text-neutral-400');
+
+        const paragraphs = article.querySelectorAll('p');
+        paragraphs.forEach(p => {
+          p.classList.remove('hidden', 'text-white', 'font-medium');
+        });
+        showToast("Deep Technical Dive restored.");
       }
     }
 
-    // Command Line Simulator
-    function executeCommand() {
-      const input = document.getElementById('cmdInput').value.trim().toLowerCase();
-      const out = document.getElementById('cmdOutput');
-      out.classList.remove('hidden');
+    // 6. Font Style & Size Adjuster
+    let fontSizes = ['text-mode-sm', 'text-mode-base', 'text-mode-lg'];
+    let currentSizeIndex = 1;
 
-      if (!input) {
-        out.innerText = "// Error: Empty vector query. Try '3nm' or 'status'.";
-        return;
-      }
+    function changeFontSize(delta) {
+      const container = document.getElementById('articleBodyContainer');
+      container.classList.remove(fontSizes[currentSizeIndex]);
+      currentSizeIndex = Math.max(0, Math.min(fontSizes.length - 1, currentSizeIndex + delta));
+      container.classList.add(fontSizes[currentSizeIndex]);
+      showToast(`Text size: ${currentSizeIndex === 0 ? 'Compact' : currentSizeIndex === 1 ? 'Standard' : 'Enlarged'}`);
+    }
 
-      if (input.includes('3nm') || input.includes('1.4nm') || input.includes('compare')) {
-        out.innerHTML = `&gt; COMPARING TRANSISTOR METRICS:<br>• TSMC N3E: FinFET/GAA hybrid, 215M Tr/mm² density.<br>• Intel 14A: GAA RibbonFET, Backside PowerVia, +35% compute efficiency gain over 3nm standard.`;
-      } else if (input.includes('status') || input.includes('transit')) {
-        out.innerHTML = `&gt; TRANSIT RADAR: Delhi Metro operational at 99.4% headway precision. Namo Bharat RRTS: Nominal speed 160 km/h.`;
+    function setFontStyle(style) {
+      const container = document.getElementById('articleBodyContainer');
+      const btnSerif = document.getElementById('btnFontSerif');
+      const btnSans = document.getElementById('btnFontSans');
+
+      if (style === 'serif') {
+        container.classList.remove('font-mode-sans');
+        container.classList.add('font-mode-serif');
+        btnSerif.classList.add('bg-neutral-800', 'text-white');
+        btnSans.classList.remove('bg-neutral-800', 'text-white');
+        btnSans.classList.add('text-neutral-400');
       } else {
-        out.innerHTML = `&gt; INDEX QUERY: '${input}' registered. Telemetry indicates 84.2% correlation with sovereign semiconductor capacity. Full brief logged.`;
+        container.classList.remove('font-mode-serif');
+        container.classList.add('font-mode-sans');
+        btnSans.classList.add('bg-neutral-800', 'text-white');
+        btnSerif.classList.remove('bg-neutral-800', 'text-white');
+        btnSerif.classList.add('text-neutral-400');
       }
     }
 
-    // Lead Magnet Modal
+    // 7. Simulated AI Audio Brief & Waveform Synthesizer
+    let isAudioPlaying = false;
+    let audioInterval = null;
+    let audioSecs = 0;
+
+    function toggleAudioPlayer() {
+      const player = document.getElementById('audioPlayerModal');
+      player.classList.toggle('translate-y-[200%]');
+    }
+
+    function handleAudioPlay() {
+      isAudioPlaying = !isAudioPlaying;
+      const playIcon = document.getElementById('playIcon');
+      const bars = document.querySelectorAll('.audio-bar');
+      const timer = document.getElementById('audioTimer');
+
+      if (isAudioPlaying) {
+        playIcon.innerHTML = '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>';
+        showToast("Simulated AI audio briefing streaming...");
+
+        // Animate waveform
+        audioInterval = setInterval(() => {
+          audioSecs++;
+          const mins = Math.floor(audioSecs / 60).toString().padStart(2, '0');
+          const secs = (audioSecs % 60).toString().padStart(2, '0');
+          timer.innerText = `${mins}:${secs} / 03:14`;
+
+          bars.forEach(bar => {
+            const h = Math.floor(Math.random() * 26) + 4;
+            bar.style.height = h + 'px';
+          });
+        }, 200);
+
+      } else {
+        playIcon.innerHTML = '<path d="M8 5v14l11-7z"/>';
+        clearInterval(audioInterval);
+        bars.forEach(bar => bar.style.height = '6px');
+      }
+    }
+
+    function changeAudioSpeed(speed) {
+      document.querySelectorAll('.speed-btn').forEach(btn => {
+        btn.classList.toggle('bg-neutral-800', btn.innerText.includes(speed));
+        btn.classList.toggle('text-white', btn.innerText.includes(speed));
+      });
+      showToast(`Playback speed: ${speed}x`);
+    }
+
+    // 8. Technical Jargon Lexicon Modals
+    const JARGON_DATA = {
+      'sovereign': {
+        title: "Sovereign GPU Cluster",
+        desc: "Nationally governed AI compute centers secured against international trade embargoes and spot rate spikes, maintaining local data custody for strategic foundation model training."
+      },
+      'optics': {
+        title: "Co-Packaged Optics (CPO)",
+        desc: "Advanced packaging standard bonding optical laser transceivers directly beside compute dies on a shared substrate, bypassing copper trace electrical resistance in 800G switches."
+      },
+      'litho': {
+        title: "High-NA EUV Scanner (0.55 NA)",
+        desc: "ASML's next-generation lithography systems utilizing anamorphic mirrors to etch sub-2nm chip geometries with single exposure, preventing multiple-patterning defects."
+      },
+      'interconnect': {
+        title: "Die-to-Die 3D Hybrid Bonding",
+        desc: "Direct copper-to-copper wafer fusion allowing stacked cache and compute chiplets to communicate with under 1 picosecond latency and near-zero parasitic capacitance."
+      }
+    };
+
+    function showJargonPopup(key) {
+      const item = JARGON_DATA[key];
+      if (!item) return;
+      document.getElementById('jargonTitle').innerText = item.title;
+      document.getElementById('jargonDesc').innerText = item.desc;
+      document.getElementById('jargonModal').classList.remove('hidden');
+    }
+
+    function closeJargonPopup() {
+      document.getElementById('jargonModal').classList.add('hidden');
+    }
+
+    // 9. Interactive Silicon Quiz Mechanism
+    function handleQuizAnswer(index) {
+      const container = document.getElementById('quizOptionsContainer');
+      const buttons = container.querySelectorAll('.quiz-btn');
+      const resultBox = document.getElementById('quizResultBox');
+
+      buttons.forEach(btn => btn.disabled = true);
+
+      if (index === 0) {
+        buttons[0].classList.add('border-phosphor', 'bg-emerald-950/40', 'text-phosphor');
+        resultBox.className = "mt-4 p-3.5 rounded-xl border border-phosphor/50 bg-emerald-950/40 text-phosphor text-xs font-mono";
+        resultBox.innerHTML = "<strong>✓ CORRECT:</strong> Backside power delivery shifts heavy power grids beneath the silicon layer, resolving voltage drop and freeing upper metal layers for pure clock/data lines.";
+      } else {
+        buttons[index].classList.add('border-crimson', 'bg-rose-950/40', 'text-crimson');
+        buttons[0].classList.add('border-phosphor', 'text-phosphor');
+        resultBox.className = "mt-4 p-3.5 rounded-xl border border-crimson/50 bg-rose-950/40 text-crimson text-xs font-mono";
+        resultBox.innerHTML = "<strong>✗ INCORRECT:</strong> Option A is the precise architectural breakthrough. Backside power delivery eliminates signal-wire IR drops without changing substrate materials.";
+      }
+
+      resultBox.classList.remove('hidden');
+    }
+
+    // 10. Quick Preview Drawer
+    function openQuickPreview(title, body) {
+      document.getElementById('previewDrawerTitle').innerText = title;
+      document.getElementById('previewDrawerBody').innerText = body;
+      document.getElementById('previewDrawer').classList.remove('translate-x-full');
+    }
+
+    function closeQuickPreview() {
+      document.getElementById('previewDrawer').classList.add('translate-x-full');
+    }
+
+    // 11. Bookmarking State
+    let bookmarks = 0;
+    function toggleBookmarkArticle() {
+      bookmarks = bookmarks === 0 ? 1 : 0;
+      document.getElementById('bookmarkCount').innerText = bookmarks;
+      showToast(bookmarks === 1 ? "Article saved to your offline cache!" : "Bookmark removed.");
+    }
+
+    function toggleBookmarkPanel() {
+      document.getElementById('bookmarkDrawer').classList.toggle('-translate-x-full');
+    }
+
+    // 12. Lead Magnet Modal
     function openLeadModal(title) {
       document.getElementById('modalTitle').innerText = title;
       document.getElementById('leadModal').classList.remove('hidden');
@@ -685,18 +1105,35 @@
       }, 1200);
     }
 
-    // Simple Filter Simulator
-    function filterCategory(cat) {
-      const headline = document.getElementById('breakingHeadline');
-      if (cat === 'silicon') {
-        headline.innerText = "FILTERED [SILICON]: TSMC, Intel 14A, and Samsung GAA wafer allocations updated.";
-      } else if (cat === 'macro') {
-        headline.innerText = "FILTERED [SOVEREIGN AI]: National compute reserves and localized LLM deployment frameworks.";
-      } else if (cat === 'transit') {
-        headline.innerText = "FILTERED [TRANSIT]: Delhi NCR metro phase IV automation and RRTS route metrics.";
-      } else {
-        headline.innerText = "India AI Mission initiates 10,000+ sovereign GPU deployment tenders • TSMC hints at 1.4nm commercial wafer ramp by late 2027.";
+    // 13. Command Line Simulator
+    function executeCommand() {
+      const input = document.getElementById('cmdInput').value.trim().toLowerCase();
+      const out = document.getElementById('cmdOutput');
+      out.classList.remove('hidden');
+
+      if (!input) {
+        out.innerText = "// Error: Empty vector query. Try '3nm' or 'transit'.";
+        return;
       }
+
+      if (input.includes('3nm') || input.includes('1.4nm') || input.includes('compare')) {
+        out.innerHTML = `&gt; COMPARING TRANSISTOR METRICS:<br>• TSMC N3E: FinFET/GAA hybrid, 215M Tr/mm² density.<br>• Intel 14A: GAA RibbonFET, Backside PowerVia, +35% compute efficiency gain over 3nm standard.`;
+      } else if (input.includes('status') || input.includes('transit')) {
+        out.innerHTML = `&gt; TRANSIT RADAR: Delhi Metro operational at 99.4% headway precision. Namo Bharat RRTS: Nominal speed 160 km/h.`;
+      } else {
+        out.innerHTML = `&gt; INDEX QUERY: '${input}' registered. Telemetry indicates 84.2% correlation with sovereign semiconductor capacity. Full brief logged.`;
+      }
+    }
+
+    // 14. Category Filtering
+    function setCategoryFilter(cat) {
+      document.querySelectorAll('.category-btn').forEach(btn => {
+        btn.classList.remove('bg-neutral-900', 'text-white', 'border', 'border-borderSubtle');
+        btn.classList.add('text-neutral-400');
+      });
+      event.target.classList.add('bg-neutral-900', 'text-white', 'border', 'border-borderSubtle');
+      event.target.classList.remove('text-neutral-400');
+      showToast(`Category filtered to [${cat.toUpperCase()}]`);
     }
   </script>
 </body>
