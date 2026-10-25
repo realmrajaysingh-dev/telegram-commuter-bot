@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>CULTYNEX // Autonomous Agent Node Matrix</title>
+  <title>CULTYNEX // Full-Stack Agent Matrix</title>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700;800&family=Plus+Jakarta+Sans:wght@500;700;800&display=swap');
 
@@ -16,6 +16,7 @@
       --danger: #ff3366;
       --warning: #ffaa00;
       --cyan: #00e5ff;
+      --purple: #b5179e;
       --text-main: #f0f3f8;
       --text-sub: #78829d;
     }
@@ -23,7 +24,6 @@
     * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
     body, html { width: 100%; height: 100%; overflow: hidden; background: var(--bg); font-family: 'Plus Jakarta Sans', sans-serif; color: var(--text-main); }
 
-    /* Interactive Infinite Cyber Grid */
     #viewport {
       width: 100vw;
       height: 100vh;
@@ -38,7 +38,6 @@
     }
     #viewport:active { cursor: grabbing; }
 
-    /* SVG Canvas for Bezier Cables */
     #wires-svg {
       position: absolute;
       top: 0;
@@ -75,7 +74,6 @@
       to { stroke-dashoffset: 0; }
     }
 
-    /* Top Navigation HUD */
     .hud-header {
       position: absolute;
       top: 16px;
@@ -133,26 +131,11 @@
       gap: 8px;
       transition: all 0.2s;
     }
-    .btn:hover {
-      border-color: #3b4562;
-      transform: translateY(-1px);
-    }
-    .btn-primary {
-      background: var(--accent);
-      color: #041209;
-      border-color: var(--accent);
-      font-weight: 800;
-    }
-    .btn-primary:hover {
-      box-shadow: 0 0 20px rgba(0, 255, 136, 0.4);
-    }
-    .btn-danger {
-      background: rgba(255, 51, 102, 0.15);
-      border-color: var(--danger);
-      color: var(--danger);
-    }
+    .btn:hover { border-color: #3b4562; transform: translateY(-1px); }
+    .btn-primary { background: var(--accent); color: #041209; border-color: var(--accent); font-weight: 800; }
+    .btn-primary:hover { box-shadow: 0 0 20px rgba(0, 255, 136, 0.4); }
+    .btn-danger { background: rgba(255, 51, 102, 0.15); border-color: var(--danger); color: var(--danger); }
 
-    /* Node System */
     .node {
       position: absolute;
       width: 250px;
@@ -166,67 +149,32 @@
       z-index: 10;
       transition: border-color 0.25s, box-shadow 0.25s;
     }
-    .node:hover {
-      border-color: #3e4866;
-    }
-    .node.running {
-      border-color: var(--accent);
-      box-shadow: 0 0 25px rgba(0, 255, 136, 0.25);
-    }
-    .node.failed {
-      border-color: var(--danger);
-      box-shadow: 0 0 25px rgba(255, 51, 102, 0.35);
-    }
+    .node:hover { border-color: #3e4866; }
+    .node.running { border-color: var(--accent); box-shadow: 0 0 25px rgba(0, 255, 136, 0.25); }
+    .node.failed { border-color: var(--danger); box-shadow: 0 0 25px rgba(255, 51, 102, 0.35); }
 
-    .node-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 10px;
-    }
-    .node-tag {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 9px;
-      font-weight: 800;
-      color: var(--text-sub);
-      letter-spacing: 1px;
-    }
-    .status-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: #3e4866;
-    }
+    .node-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .node-tag { font-family: 'JetBrains Mono', monospace; font-size: 9px; font-weight: 800; color: var(--text-sub); letter-spacing: 1px; }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #3e4866; }
     .status-dot.idle { background: #3e4866; }
     .status-dot.running { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
     .status-dot.error { background: var(--danger); box-shadow: 0 0 10px var(--danger); }
 
-    .node-name {
-      font-size: 14px;
-      font-weight: 700;
-      color: #fff;
-      margin-bottom: 4px;
-    }
-    .node-desc {
-      font-size: 11px;
-      color: var(--text-sub);
-      line-height: 1.4;
-      margin-bottom: 12px;
-    }
+    .node-name { font-size: 13px; font-weight: 700; color: #fff; margin-bottom: 4px; }
+    .node-desc { font-size: 11px; color: var(--text-sub); line-height: 1.4; margin-bottom: 10px; }
 
     .node-meta {
       background: #11141d;
       border: 1px solid rgba(255, 255, 255, 0.05);
       border-radius: 8px;
-      padding: 8px 10px;
+      padding: 6px 8px;
       font-family: 'JetBrains Mono', monospace;
-      font-size: 10px;
+      font-size: 9px;
       color: #a4adc5;
       display: flex;
       justify-content: space-between;
     }
 
-    /* Socket Ports (Connection points) */
     .port {
       width: 12px;
       height: 12px;
@@ -240,7 +188,6 @@
     .port-in { left: -7px; }
     .port-out { right: -7px; }
 
-    /* Bottom Control Telemetry Bar */
     .bottom-bar {
       position: absolute;
       bottom: 20px;
@@ -264,61 +211,8 @@
       align-items: center;
       gap: 14px;
     }
-    .telemetry-highlight {
-      color: var(--accent);
-      font-weight: 700;
-    }
+    .telemetry-highlight { color: var(--accent); font-weight: 700; }
 
-    /* Auto-Healer AI Modal Banner */
-    #healer-banner {
-      display: none;
-      position: absolute;
-      top: 80px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: rgba(20, 8, 14, 0.96);
-      border: 1px solid var(--danger);
-      box-shadow: 0 15px 40px rgba(255, 51, 102, 0.4);
-      border-radius: 14px;
-      padding: 16px 24px;
-      z-index: 200;
-      width: 90%;
-      max-width: 620px;
-      animation: popIn 0.3s ease;
-    }
-    @keyframes popIn {
-      from { opacity: 0; transform: translate(-50%, -15px); }
-      to { opacity: 1; transform: translate(-50%, 0); }
-    }
-    .healer-title {
-      color: var(--danger);
-      font-weight: 800;
-      font-size: 14px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-bottom: 6px;
-      font-family: 'JetBrains Mono', monospace;
-    }
-    .healer-msg {
-      font-size: 12px;
-      color: #d1d6e5;
-      margin-bottom: 14px;
-      line-height: 1.5;
-    }
-    .healer-btn {
-      background: var(--danger);
-      color: #fff;
-      font-weight: 800;
-      border: none;
-      padding: 10px 16px;
-      border-radius: 8px;
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 11px;
-      cursor: pointer;
-    }
-
-    /* Deploy Modal */
     #deploy-modal {
       display: none;
       position: fixed;
@@ -336,8 +230,6 @@
       border-radius: 16px;
       padding: 24px;
     }
-    .modal-box h3 { font-size: 18px; margin-bottom: 8px; }
-    .modal-box p { font-size: 12px; color: var(--text-sub); margin-bottom: 18px; line-height: 1.5; }
     .input-field {
       width: 100%;
       background: #171b26;
@@ -359,135 +251,147 @@
     <path id="wire-1-2" class="cable" />
     <path id="wire-2-3" class="cable" />
     <path id="wire-2-4" class="cable" />
+    <path id="wire-2-7" class="cable" />
+    <path id="wire-2-8" class="cable" />
     <path id="wire-3-5" class="cable" />
     <path id="wire-4-5" class="cable" />
+    <path id="wire-7-5" class="cable" />
+    <path id="wire-4-9" class="cable" />
     <path id="wire-2-6" class="cable" />
   </svg>
 
-  <!-- Top Navigation Controls -->
   <div class="hud-header">
     <div class="brand-cluster">
       <div class="badge">ORCHESTRATOR</div>
-      <div class="brand-title">CULTYNEX AUTONOMOUS NODE MATRIX</div>
+      <div class="brand-title">CULTYNEX MULTI-AGENT MATRIX (9 NODES)</div>
     </div>
     <div class="hud-actions">
-      <button class="btn" onclick="simulateWorkflow()">▶ SIMULATE FLOW</button>
-      <button class="btn btn-danger" onclick="injectTestError()">⚡ INJECT 429 ERROR</button>
+      <button class="btn" onclick="simulateFullWorkflow()">▶ SIMULATE FULL PIPELINE</button>
       <button class="btn btn-primary" onclick="openDeployModal()">🚀 DEPLOY LIVE</button>
     </div>
   </div>
 
-  <!-- NODE 1: Trigger Scheduler -->
-  <div class="node" id="node-1" style="left: 40px; top: 120px;">
+  <!-- NODE 01: Trigger Scheduler -->
+  <div class="node" id="node-1" style="left: 30px; top: 120px;">
     <div class="node-header">
       <span class="node-tag">01 // TRIGGER</span>
       <div class="status-dot idle" id="dot-1"></div>
     </div>
     <div class="node-name">Cron & Webhook Engine</div>
     <div class="node-desc">Fires dispatch events at peak commuting transit intervals.</div>
-    <div class="node-meta">
-      <span>INTERVAL</span>
-      <span>2X DAILY</span>
-    </div>
+    <div class="node-meta"><span>SCHEDULE</span><span>0 3,11 * * *</span></div>
     <div class="port port-out"></div>
   </div>
 
-  <!-- NODE 2: Gemini Intelligence Brain -->
-  <div class="node" id="node-2" style="left: 350px; top: 120px;">
+  <!-- NODE 02: Gemini Brain -->
+  <div class="node" id="node-2" style="left: 330px; top: 120px;">
     <div class="port port-in"></div>
     <div class="node-header">
       <span class="node-tag">02 // AI AGENT</span>
       <div class="status-dot idle" id="dot-2"></div>
     </div>
     <div class="node-name">Gemini Intelligence Core</div>
-    <div class="node-desc">Auto-discovers quota-free models and enforces structured JSON schemas.</div>
-    <div class="node-meta">
-      <span>FALLBACK</span>
-      <span id="gemini-model-badge">gemini-2.5-flash</span>
-    </div>
+    <div class="node-desc">Discovers quota-free models, synthesizes JSON payload & full web story.</div>
+    <div class="node-meta"><span>QUOTA</span><span>1500 REQ/DAY</span></div>
     <div class="port port-out"></div>
   </div>
 
-  <!-- NODE 3: Playwright Media Renderer -->
-  <div class="node" id="node-3" style="left: 670px; top: 60px;">
+  <!-- NODE 03: Playwright Graphic Card -->
+  <div class="node" id="node-3" style="left: 640px; top: 30px;">
     <div class="port port-in"></div>
     <div class="node-header">
-      <span class="node-tag">03 // MEDIA COMPOSER</span>
+      <span class="node-tag">03 // MEDIA</span>
       <div class="status-dot idle" id="dot-3"></div>
     </div>
     <div class="node-name">Playwright Visual Core</div>
-    <div class="node-desc">Renders 1080x1350 editorial graphic cards with dark silicon styling.</div>
-    <div class="node-meta">
-      <span>RESOLUTION</span>
-      <span>1080x1350</span>
-    </div>
+    <div class="node-desc">Snaps 1080x1350 editorial card with silicon hardware overlay.</div>
+    <div class="node-meta"><span>FORMAT</span><span>PNG 1080x1350</span></div>
     <div class="port port-out"></div>
   </div>
 
-  <!-- NODE 4: Web Story Publisher -->
-  <div class="node" id="node-4" style="left: 670px; top: 230px;">
+  <!-- NODE 04: HTML Web Publisher -->
+  <div class="node" id="node-4" style="left: 640px; top: 180px;">
     <div class="port port-in"></div>
     <div class="node-header">
-      <span class="node-tag">04 // REPO ENGINE</span>
+      <span class="node-tag">04 // WEB ENGINE</span>
       <div class="status-dot idle" id="dot-4"></div>
     </div>
     <div class="node-name">Article HTML Publisher</div>
-    <div class="node-desc">Compiles 800+ word deep-dive web pages and commits to GitHub repo.</div>
-    <div class="node-meta">
-      <span>TARGET</span>
-      <span>articles/*.html</span>
-    </div>
+    <div class="node-desc">Builds 800+ word deep-dive web page & triggers GitHub Pages CDN.</div>
+    <div class="node-meta"><span>DIR</span><span>articles/*.html</span></div>
     <div class="port port-out"></div>
   </div>
 
-  <!-- NODE 5: Telegram Dispatcher -->
-  <div class="node" id="node-5" style="left: 980px; top: 140px;">
+  <!-- NODE 07: Audio Podcast TTS (Free) -->
+  <div class="node" id="node-7" style="left: 640px; top: 330px;">
     <div class="port port-in"></div>
     <div class="node-header">
-      <span class="node-tag">05 // BROADCASTER</span>
+      <span class="node-tag">07 // AUDIO TTS</span>
+      <div class="status-dot idle" id="dot-7"></div>
+    </div>
+    <div class="node-name">Edge-TTS Audio Podcast</div>
+    <div class="node-desc">Generates free natural AI voice brief MP3 for Telegram and web player.</div>
+    <div class="node-meta"><span>COST</span><span>100% FREE (0ms API)</span></div>
+    <div class="port port-out"></div>
+  </div>
+
+  <!-- NODE 08: Auto IndexNow SEO Ping -->
+  <div class="node" id="node-8" style="left: 640px; top: 480px;">
+    <div class="port port-in"></div>
+    <div class="node-header">
+      <span class="node-tag">08 // AUTO SEO</span>
+      <div class="status-dot idle" id="dot-8"></div>
+    </div>
+    <div class="node-name">IndexNow Search Pinger</div>
+    <div class="node-desc">Notifies search engines immediately to rank new article in 15 mins.</div>
+    <div class="node-meta"><span>TARGET</span><span>IndexNow API</span></div>
+  </div>
+
+  <!-- NODE 05: Telegram Channel Broadcaster -->
+  <div class="node" id="node-5" style="left: 950px; top: 120px;">
+    <div class="port port-in"></div>
+    <div class="node-header">
+      <span class="node-tag">05 // TELEGRAM</span>
       <div class="status-dot idle" id="dot-5"></div>
     </div>
-    <div class="node-name">Telegram Channel Post</div>
-    <div class="node-desc">Dispatches rendered visual card, curiosity hook, and dynamic quiz poll.</div>
-    <div class="node-meta">
-      <span>CHANNEL</span>
-      <span>@cultynex_daily</span>
-    </div>
+    <div class="node-name">Telegram Broadcaster</div>
+    <div class="node-desc">Sends visual card, viral curiosity hook, poll quiz, and direct article link.</div>
+    <div class="node-meta"><span>DESTINATION</span><span>@cultynex_daily</span></div>
   </div>
 
-  <!-- NODE 6: AI Self-Healing Sentry -->
-  <div class="node" id="node-6" style="left: 350px; top: 320px;">
+  <!-- NODE 09: Lead Capture Flat-DB -->
+  <div class="node" id="node-9" style="left: 950px; top: 290px;">
     <div class="port port-in"></div>
     <div class="node-header">
-      <span class="node-tag">06 // SENTRY REPAIR</span>
-      <div class="status-dot idle" id="dot-6"></div>
+      <span class="node-tag">09 // LEAD FUNNEL</span>
+      <div class="status-dot idle" id="dot-9"></div>
     </div>
-    <div class="node-name">Autonomous Auto-Healer</div>
-    <div class="node-desc">Monitors GitHub logs for 429/schema errors and auto-patches bot code.</div>
-    <div class="node-meta">
-      <span>HEAL RATE</span>
-      <span>100% RECOVERY</span>
-    </div>
+    <div class="node-name">Flat-File Lead Vault</div>
+    <div class="node-desc">Captures roadmap download emails into free GitHub repo CSV database.</div>
+    <div class="node-meta"><span>STORAGE</span><span>subscribers.csv</span></div>
   </div>
 
-  <!-- AI Auto-Healer Action Banner -->
-  <div id="healer-banner">
-    <div class="healer-title">⚠️ PIPELINE FAILURE INTERCEPTED BY AI SENTRY</div>
-    <div class="healer-msg" id="healer-msg">
-      [Node 02: Gemini Core] encountered 429 ResourceExhausted (Free quota depleted). Auto-healer recommends rerouting to 1500 req/day quota models.
+  <!-- NODE 06: Auto-Healer Sentry -->
+  <div class="node" id="node-6" style="left: 330px; top: 380px;">
+    <div class="port port-in"></div>
+    <div class="node-header">
+      <span class="node-tag">06 // SENTRY</span>
+      <div class="status-dot idle" id="dot-6"></div>
     </div>
-    <button class="healer-btn" onclick="executeAutoHeal()">⚡ EXECUTE RECOVERY PATCH</button>
+    <div class="node-name">Self-Healing Engine</div>
+    <div class="node-desc">Inspects GitHub action exceptions and applies AST auto-patches.</div>
+    <div class="node-meta"><span>UPTIME</span><span>SELF-REPAIR ON</span></div>
   </div>
 
   <!-- Bottom Telemetry Status Bar -->
   <div class="bottom-bar">
     <div class="telemetry-text">
-      <span>STATUS: <span class="telemetry-highlight" id="tele-status">IDLE & READY</span></span>
-      <span>PIPELINE HEALTH: <span class="telemetry-highlight" id="tele-health">99.8%</span></span>
-      <span>MODELS DISCOVERED: <span class="telemetry-highlight">5 LIVE</span></span>
+      <span>TOPOLOGY: <span class="telemetry-highlight">9 NODES SYNCED</span></span>
+      <span>ACTIVE ENGINE: <span class="telemetry-highlight">GEMINI 2.5 FLASH</span></span>
+      <span>FREE AUTOMATION: <span class="telemetry-highlight">100% OPERATIONAL</span></span>
     </div>
     <div>
-      <a href="./" target="_blank" style="color: var(--accent); font-family: 'JetBrains Mono', monospace; font-size: 11px; text-decoration: none;">↗ OPEN PUBLIC PORTAL</a>
+      <a href="./" target="_blank" style="color: var(--accent); font-family: 'JetBrains Mono', monospace; font-size: 11px; text-decoration: none;">↗ OPEN TERMINAL WEB</a>
     </div>
   </div>
 </div>
@@ -495,14 +399,11 @@
 <!-- Modal for Triggering Live GitHub Run -->
 <div id="deploy-modal">
   <div class="modal-box">
-    <h3>Deploy Live Workflow Run</h3>
-    <p>Trigger your live GitHub Actions runner (<code>daily_bot.yml</code>) across the cloud.</p>
+    <h3 style="font-size: 18px; margin-bottom: 8px;">Trigger 9-Node Pipeline Run</h3>
+    <p style="font-size: 12px; color: var(--text-sub); margin-bottom: 16px;">Dispatches complete media generation to GitHub Actions cloud runner.</p>
     <label style="font-size: 11px; color: var(--text-sub); display: block; margin-bottom: 6px; font-family: 'JetBrains Mono', monospace;">GITHUB PAT TOKEN</label>
     <input type="password" id="patToken" class="input-field" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx">
     
-    <label style="font-size: 11px; color: var(--text-sub); display: block; margin-bottom: 6px; font-family: 'JetBrains Mono', monospace;">CUSTOM INSTRUCTION / FOCUS (OPTIONAL)</label>
-    <input type="text" id="customPrompt" class="input-field" placeholder="e.g. Focus on high-density 3D silicon packaging...">
-
     <div style="display: flex; gap: 10px; margin-top: 8px;">
       <button class="btn btn-primary" style="flex: 1;" onclick="triggerGitHubAction()">⚡ FIRE PIPELINE</button>
       <button class="btn" onclick="closeDeployModal()">CANCEL</button>
@@ -511,7 +412,6 @@
 </div>
 
 <script>
-  // Dragging Engine & Real-time Cable Redraw
   let activeNode = null;
   let offsetX = 0, offsetY = 0;
 
@@ -556,19 +456,9 @@
     updateAllWires();
   }
 
-  function stopDrag() {
-    activeNode = null;
-    window.removeEventListener('mousemove', drag);
-    window.removeEventListener('mouseup', stopDrag);
-  }
+  function stopDrag() { activeNode = null; window.removeEventListener('mousemove', drag); window.removeEventListener('mouseup', stopDrag); }
+  function stopDragTouch() { activeNode = null; window.removeEventListener('touchmove', dragTouch); window.removeEventListener('touchend', stopDragTouch); }
 
-  function stopDragTouch() {
-    activeNode = null;
-    window.removeEventListener('touchmove', dragTouch);
-    window.removeEventListener('touchend', stopDragTouch);
-  }
-
-  // Smooth Bezier Curve Math
   function drawBezier(wireId, nodeAId, nodeBId) {
     const elA = document.getElementById(nodeAId);
     const elB = document.getElementById(nodeBId);
@@ -584,16 +474,19 @@
     const endY = rB.top + (rB.height / 2);
 
     const dist = Math.abs(endX - startX) * 0.55;
-    const d = `M ${startX} ${startY} C ${startX + dist} ${startY}, ${endX - dist} ${endY}, ${endX} ${endY}`;
-    wire.setAttribute('d', d);
+    wire.setAttribute('d', `M ${startX} ${startY} C ${startX + dist} ${startY}, ${endX - dist} ${endY}, ${endX} ${endY}`);
   }
 
   function updateAllWires() {
     drawBezier('wire-1-2', 'node-1', 'node-2');
     drawBezier('wire-2-3', 'node-2', 'node-3');
     drawBezier('wire-2-4', 'node-2', 'node-4');
+    drawBezier('wire-2-7', 'node-2', 'node-7');
+    drawBezier('wire-2-8', 'node-2', 'node-8');
     drawBezier('wire-3-5', 'node-3', 'node-5');
     drawBezier('wire-4-5', 'node-4', 'node-5');
+    drawBezier('wire-7-5', 'node-7', 'node-5');
+    drawBezier('wire-4-9', 'node-4', 'node-9');
     drawBezier('wire-2-6', 'node-2', 'node-6');
   }
 
@@ -604,81 +497,60 @@
     if (savedToken) document.getElementById("patToken").value = savedToken;
   });
 
-  // Automated Simulation Routine
-  function simulateWorkflow() {
+  function simulateFullWorkflow() {
     resetStates();
-    document.getElementById('tele-status').innerText = 'EXECUTING RUNNER...';
-
-    // Step 1: Trigger
     setNodeState(1, 'running');
     setTimeout(() => {
       setCableState('wire-1-2', 'active');
       setNodeState(1, 'idle');
       setNodeState(2, 'running');
 
-      // Step 2: Gemini
       setTimeout(() => {
         setCableState('wire-1-2', '');
         setCableState('wire-2-3', 'active');
         setCableState('wire-2-4', 'active');
+        setCableState('wire-2-7', 'active');
+        setCableState('wire-2-8', 'active');
         setNodeState(2, 'idle');
         setNodeState(3, 'running');
         setNodeState(4, 'running');
+        setNodeState(7, 'running');
+        setNodeState(8, 'running');
 
-        // Step 3: Media & Article
         setTimeout(() => {
           setCableState('wire-2-3', '');
           setCableState('wire-2-4', '');
+          setCableState('wire-2-7', '');
+          setCableState('wire-2-8', '');
           setCableState('wire-3-5', 'active');
           setCableState('wire-4-5', 'active');
+          setCableState('wire-7-5', 'active');
+          setCableState('wire-4-9', 'active');
           setNodeState(3, 'idle');
           setNodeState(4, 'idle');
+          setNodeState(7, 'idle');
+          setNodeState(8, 'idle');
           setNodeState(5, 'running');
+          setNodeState(9, 'running');
 
-          // Step 4: Telegram
           setTimeout(() => {
             setCableState('wire-3-5', '');
             setCableState('wire-4-5', '');
+            setCableState('wire-7-5', '');
+            setCableState('wire-4-9', '');
             setNodeState(5, 'idle');
-            document.getElementById('tele-status').innerText = 'SUCCESSFULLY DEPLOYED TO TELEGRAM & WEB!';
-          }, 1200);
-        }, 1400);
-      }, 1400);
+            setNodeState(9, 'idle');
+          }, 1500);
+        }, 1500);
+      }, 1500);
     }, 1000);
-  }
-
-  // Error Injection & Auto-Healing Simulation
-  function injectTestError() {
-    resetStates();
-    setNodeState(1, 'idle');
-    setNodeState(2, 'failed');
-    setCableState('wire-2-6', 'error');
-    setNodeState(6, 'running');
-
-    document.getElementById('tele-status').innerText = 'CRITICAL: 429 QUOTA HIT';
-    document.getElementById('tele-health').innerText = '64.2%';
-    document.getElementById('healer-banner').style.display = 'block';
-  }
-
-  function executeAutoHeal() {
-    document.getElementById('healer-msg').innerText = 'Applying dynamic model fallback patch: models/gemini-2.5-flash activated. Re-dispatching...';
-    
-    setTimeout(() => {
-      document.getElementById('healer-banner').style.display = 'none';
-      setNodeState(2, 'idle');
-      setNodeState(6, 'idle');
-      setCableState('wire-2-6', '');
-      document.getElementById('gemini-model-badge').innerText = 'gemini-2.5-flash (Fixed)';
-      document.getElementById('tele-health').innerText = '100%';
-      simulateWorkflow();
-    }, 1500);
   }
 
   function setNodeState(id, state) {
     const node = document.getElementById(`node-${id}`);
     const dot = document.getElementById(`dot-${id}`);
-    node.className = `node ${state}`;
-    dot.className = `status-dot ${state}`;
+    if (node) node.className = `node ${state}`;
+    if (dot) dot.className = `status-dot ${state}`;
   }
 
   function setCableState(id, state) {
@@ -687,50 +559,25 @@
   }
 
   function resetStates() {
-    for (let i = 1; i <= 6; i++) setNodeState(i, 'idle');
+    [1,2,3,4,5,6,7,8,9].forEach(i => setNodeState(i, 'idle'));
     document.querySelectorAll('.cable').forEach(c => c.className = 'cable');
-    document.getElementById('healer-banner').style.display = 'none';
   }
 
-  // Live GitHub Dispatch Modal
-  function openDeployModal() {
-    document.getElementById('deploy-modal').style.display = 'flex';
-  }
-  function closeDeployModal() {
-    document.getElementById('deploy-modal').style.display = 'none';
-  }
+  function openDeployModal() { document.getElementById('deploy-modal').style.display = 'flex'; }
+  function closeDeployModal() { document.getElementById('deploy-modal').style.display = 'none'; }
 
   async function triggerGitHubAction() {
     const token = document.getElementById('patToken').value.trim();
-    if (!token) {
-      alert("Please provide your GitHub PAT!");
-      return;
-    }
+    if (!token) return alert("Provide GitHub Token!");
     localStorage.setItem("c_gh_token", token);
     closeDeployModal();
+    simulateFullWorkflow();
 
-    document.getElementById('tele-status').innerText = 'DISPATCHING TO GITHUB ACTIONS...';
-    simulateWorkflow();
-
-    try {
-      const res = await fetch(`https://api.github.com/repos/realmrajaysingh-dev/telegram-commuter-bot/actions/workflows/daily_bot.yml/dispatches`, {
-        method: "POST",
-        headers: {
-          "Accept": "application/vnd.github+json",
-          "Authorization": `Bearer ${token}`
-        },
-        body: JSON.stringify({ ref: "main" })
-      });
-
-      if (res.status === 204) {
-        document.getElementById('tele-status').innerText = 'GITHUB RUNNER ACKNOWLEDGED (BUILDING...)';
-      } else {
-        const d = await res.json().catch(() => ({}));
-        alert("Dispatch error: " + (d.message || "Failed to trigger"));
-      }
-    } catch (err) {
-      alert("Network error: " + err.message);
-    }
+    await fetch(`https://api.github.com/repos/realmrajaysingh-dev/telegram-commuter-bot/actions/workflows/daily_bot.yml/dispatches`, {
+      method: "POST",
+      headers: { "Accept": "application/vnd.github+json", "Authorization": `Bearer ${token}` },
+      body: JSON.stringify({ ref: "main" })
+    });
   }
 </script>
 
