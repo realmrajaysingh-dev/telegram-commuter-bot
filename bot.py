@@ -3,21 +3,20 @@ import re
 import json
 import random
 import asyncio
-import urllib.parse
 import html
 import requests
 from datetime import datetime
 import google.generativeai as genai
 from playwright.async_api import async_playwright
 
-# 1. API Keys & Secrets
+# 1. Credentials
 GEMINI_KEY = os.getenv("GEMINI_API_KEY")
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHANNEL_ID")
 
 genai.configure(api_key=GEMINI_KEY)
 
-# 2. Tech Intelligence Tracks
+# 2. Intelligence Domains
 TECH_DOMAINS = [
     "Silicon Photonics & Co-Packaged Optics in AI Clusters",
     "Analog In-Memory Computing & Neuromorphic Crossbar Arrays",
@@ -27,7 +26,7 @@ TECH_DOMAINS = [
     "High-Density 3D Hybrid Wafer Stacking & Die-to-Die Interconnects"
 ]
 
-# 3. Curated High-Res Hardware Visuals
+# 3. High-Res Visuals
 CURATED_SILICON_IMAGES = [
     "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1400&q=85",
     "https://images.unsplash.com/photo-1629654297299-c8506221ca97?auto=format&fit=crop&w=1400&q=85",
@@ -36,7 +35,6 @@ CURATED_SILICON_IMAGES = [
     "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?auto=format&fit=crop&w=1400&q=85"
 ]
 
-# 4. Rotating Lead Magnets / Community CTAs
 LEAD_MAGNETS = [
     {
         "title": "🎁 FREE RESOURCE: 2026 AI Silicon & Hardware Master Roadmap (PDF)",
@@ -58,34 +56,55 @@ LEAD_MAGNETS = [
     }
 ]
 
-def generate_with_fallback(prompt):
+def generate_with_fallback(prompt, as_json=False):
+    """Dynamically detects active models and enforces strict JSON when requested."""
     active_models = []
     try:
         for m in genai.list_models():
             if "generateContent" in m.supported_generation_methods:
                 active_models.append(m.name)
-        print(f"Discovered {len(active_models)} available models.")
     except Exception as e:
-        print("Model discovery error:", e)
+        print("Model list error:", e)
 
     if not active_models:
         active_models = ["models/gemini-2.5-flash", "models/gemini-1.5-flash", "models/gemini-pro"]
 
+    gen_config = {"response_mime_type": "application/json"} if as_json else {}
+
     last_err = None
     for model_name in active_models:
         try:
-            print(f"Executing generation with: {model_name}")
-            model = genai.GenerativeModel(model_name)
-            response = model.generate_content(prompt)
-            if response and response.text:
-                print(f"SUCCESS with {model_name}")
-                return response.text.strip()
+            print(f"Calling model: {model_name}")
+            model = genai.GenerativeModel(model_name, generation_config=gen_config if as_json else None)
+            res = model.generate_content(prompt)
+            if res and res.text:
+                print(f"Success with {model_name}")
+                return res.text.strip()
         except Exception as e:
             last_err = e
-            print(f"Skipping {model_name} due to: {e}")
+            print(f"Candidate {model_name} skipped: {e}")
             continue
 
-    raise RuntimeError(f"All available models failed. Last error: {last_err}")
+    raise RuntimeError(f"All model calls failed. Last error: {last_err}")
+
+def clean_json_extract(raw_str):
+    """Bulletproof JSON parser removing codeblocks and trailing chatter."""
+    cleaned = re.sub(r"^```(?:json)?", "", raw_str.strip(), flags=re.MULTILINE)
+    cleaned = re.sub(r"```$", "", cleaned.strip(), flags=re.MULTILINE).strip()
+    
+    # Direct parse try
+    try:
+        return json.loads(cleaned)
+    except Exception:
+        pass
+
+    # Extract first valid outermost JSON object
+    start = cleaned.find("{")
+    end = cleaned.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        return json.loads(cleaned[start:end+1])
+
+    raise ValueError("Could not extract clean JSON object from output.")
 
 def fetch_tech_dispatch():
     domain = random.choice(TECH_DOMAINS)
@@ -93,22 +112,20 @@ def fetch_tech_dispatch():
     
     prompt = f"""
     You are the Senior Intelligence Editor for CULTYNEX MEDIA NETWORK.
-    Focus on this domain: {domain}. Seed: {seed}.
-    Create a punchy viral-intel dispatch optimized to drive traffic to our terminal website.
-
-    OUTPUT ONLY VALID JSON:
+    Domain: {domain}. Seed: {seed}.
+    Create a viral-intel dispatch. Return ONLY a valid single JSON object with these keys:
     {{
       "tag": "CULTYNEX DISPATCH",
       "read_time": "3 MIN READ",
-      "headline": "SHORT PUNCHY UPPERCASE HEADLINE (MAX 8 WORDS)",
+      "headline": "SHORT UPPERCASE HEADLINE (MAX 8 WORDS)",
       "tweet_author": "Marcus Vance",
       "tweet_handle": "@CultynexStrat",
-      "tweet_text": "One razor-sharp decisive judgment on industry disruption.",
+      "tweet_text": "One razor-sharp decisive statement on industry disruption.",
       "metric_val": "+45%",
       "metric_label": "ENERGY SAVINGS | 2026 BENCHMARK",
       "article_slug": "silicon-architecture-breakthrough",
-      "telegram_hook": "2 ultra-crisp bullet points detailing the core technical breakthrough and performance metrics.",
-      "curiosity_teaser": "One sentence explaining why legacy tech is failing and how the full analysis is on the terminal.",
+      "telegram_hook": "2 ultra-crisp bullet points detailing technical breakthrough and performance metrics.",
+      "curiosity_teaser": "One sentence explaining why legacy tech is failing and how full analysis is on terminal.",
       "quiz_question": "One deep technical question evaluating understanding.",
       "options": ["Correct Technical Answer", "Alternative 1", "Alternative 2", "Alternative 3"],
       "correct_id": 0,
@@ -116,11 +133,8 @@ def fetch_tech_dispatch():
     }}
     """
     
-    raw_text = generate_with_fallback(prompt)
-    match = re.search(r"\{.*\}", raw_text, re.DOTALL)
-    if match:
-        return json.loads(match.group(0))
-    return json.loads(raw_text)
+    raw = generate_with_fallback(prompt, as_json=True)
+    return clean_json_extract(raw)
 
 def generate_and_publish_web_story(data, img_url):
     os.makedirs("articles", exist_ok=True)
@@ -128,22 +142,20 @@ def generate_and_publish_web_story(data, img_url):
     file_path = f"articles/{clean_slug}.html"
     
     article_prompt = f"""
-    You are an elite Investigative Technology Journalist at The Hindu / Wired level.
-    Write an authoritative 800-to-1000 word deep-dive article based on:
+    Write an authoritative 800-to-1000 word tech deep-dive article based on:
     Headline: {data.get('headline')}
-    Core Premise: {data.get('curiosity_teaser')}
-    Key Metric: {data.get('metric_val')} ({data.get('metric_label')})
+    Premise: {data.get('curiosity_teaser')}
+    Metric: {data.get('metric_val')} ({data.get('metric_label')})
 
-    FORMAT STRICTLY AS CLEAN HTML BODY TAGS (Use <h2>, <p>, <blockquote>, <strong>).
-    DO NOT wrap in ```html codeblocks. DO NOT include <html>, <head>, or <body> tags.
-
-    Include these 3 comprehensive sections with <h2> headers:
+    OUTPUT ONLY INNER HTML (use <h2>, <p>, <blockquote>, <strong>).
+    Do NOT output <html> or <body> tags. Do NOT wrap in markdown blocks.
+    Include 3 sections with <h2> headers:
     1. <h2>The Structural Bottleneck & Background Context</h2>
     2. <h2>Engineering Architecture & Performance Teardown</h2>
     3. <h2>Strategic Industry Fallout: Winners, Losers, and the 2026-2028 Horizon</h2>
     """
     
-    article_raw = generate_with_fallback(article_prompt)
+    article_raw = generate_with_fallback(article_prompt, as_json=False)
     article_body = article_raw.replace("```html", "").replace("```", "").strip()
 
     template_content = ""
@@ -160,10 +172,10 @@ def generate_and_publish_web_story(data, img_url):
           <title>{{HEADLINE}} | Cultynex Intelligence</title>
           <style>
             body { background: #07080b; color: #d6d9e0; font-family: sans-serif; padding: 20px; line-height: 1.6; max-width: 900px; margin: auto; }
-            h1 { color: #fff; font-size: 34px; margin-bottom: 20px; }
+            h1 { color: #fff; font-size: 32px; }
             h2 { color: #fff; margin-top: 30px; }
-            img { width: 100%; max-height: 450px; object-fit: cover; border-radius: 10px; margin-bottom: 25px; }
-            .box { background: #11141d; padding: 18px; border-left: 4px solid #00ff88; margin-bottom: 25px; border-radius: 6px; }
+            img { width: 100%; max-height: 450px; object-fit: cover; border-radius: 8px; margin: 20px 0; }
+            .box { background: #11141d; padding: 18px; border-left: 4px solid #00ff88; margin-bottom: 25px; }
           </style>
         </head>
         <body>
@@ -199,7 +211,7 @@ def generate_and_publish_web_story(data, img_url):
         out.write(full_page)
         
     print(f"Generated Web Article: {file_path}")
-    return f"[https://realmrajaysingh-dev.github.io/telegram-commuter-bot/articles/](https://realmrajaysingh-dev.github.io/telegram-commuter-bot/articles/){clean_slug}.html"
+    return f"https://realmrajaysingh-dev.github.io/telegram-commuter-bot/articles/{clean_slug}.html"
 
 async def render_editorial_card(data, img_url):
     with open("card_template.html", "r", encoding="utf-8") as f:
@@ -257,13 +269,13 @@ def send_telegram(data, direct_article_url):
         ]
     }
     
-    api_token = str(BOT_TOKEN).strip()
-    photo_endpoint = f"[https://api.telegram.org/bot](https://api.telegram.org/bot){api_token}/sendPhoto"
-    poll_endpoint = f"[https://api.telegram.org/bot](https://api.telegram.org/bot){api_token}/sendPoll"
-    
+    token = str(BOT_TOKEN).strip()
+    photo_api = f"https://api.telegram.org/bot{token}/sendPhoto"
+    poll_api = f"https://api.telegram.org/bot{token}/sendPoll"
+
     with open("final_card.png", "rb") as photo:
         r_photo = requests.post(
-            photo_endpoint,
+            photo_api,
             data={
                 "chat_id": CHAT_ID,
                 "caption": caption,
@@ -276,7 +288,7 @@ def send_telegram(data, direct_article_url):
         r_photo.raise_for_status()
 
     r_poll = requests.post(
-        poll_endpoint,
+        poll_api,
         json={
             "chat_id": CHAT_ID,
             "question": f"🎯 {data['quiz_question'][:255]}",
@@ -291,21 +303,21 @@ def send_telegram(data, direct_article_url):
     r_poll.raise_for_status()
 
 async def main():
-    print("1. Creating promotional intelligence dispatch...")
+    print("1. Fetching structured intelligence dispatch...")
     data = fetch_tech_dispatch()
     
     selected_image = random.choice(CURATED_SILICON_IMAGES)
 
-    print("2. Generating comprehensive 800+ word website article...")
+    print("2. Generating longform web article...")
     article_url = generate_and_publish_web_story(data, selected_image)
 
-    print("3. Rendering high-res editorial card...")
+    print("3. Rendering high-res card...")
     await render_editorial_card(data, selected_image)
 
-    print("4. Publishing payload to Telegram channel...")
+    print("4. Publishing to Telegram channel...")
     send_telegram(data, article_url)
     
-    print("Dispatch deployed successfully!")
+    print("Pipeline run completed successfully!")
 
 if __name__ == "__main__":
     asyncio.run(main())
