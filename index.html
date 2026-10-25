@@ -10,45 +10,36 @@
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: #fafafa; color: #111; font-family: 'Inter', sans-serif; line-height: 1.5; }
 
-    /* Top Ticker Bar */
     .top-ticker { background: #0b0c10; color: #888; font-family: 'JetBrains Mono', monospace; font-size: 11px; padding: 8px 30px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #222; }
     .pulse-dot { display: inline-block; width: 6px; height: 6px; background: #e63946; border-radius: 50%; margin-right: 6px; }
     .ticker-left { color: #eee; }
     .ticker-right span { margin-left: 16px; color: #ccc; }
     .num-neg { color: #e63946; }
-    .num-pos { color: #2ecc71; }
 
-    /* Header Nav */
     header { background: #fff; border-bottom: 1px solid #eaeaea; padding: 18px 40px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; }
     .brand-wrap { display: flex; align-items: center; gap: 10px; text-decoration: none; color: inherit; }
     .brand-mark { background: #e63946; color: #fff; font-weight: 900; font-size: 13px; padding: 4px 8px; border-radius: 3px; letter-spacing: 1px; }
     .brand-name { font-weight: 800; font-size: 20px; letter-spacing: -0.5px; }
     .nav-links { display: flex; gap: 24px; list-style: none; font-size: 14px; font-weight: 600; color: #555; }
-    .nav-links a { text-decoration: none; color: inherit; transition: 0.2s; }
-    .nav-links a:hover, .nav-links a.active { color: #111; border-bottom: 2px solid #111; padding-bottom: 4px; }
-    .join-tg-btn { background: #0088cc; color: #fff; padding: 10px 18px; border-radius: 20px; font-size: 13px; font-weight: 700; text-decoration: none; display: flex; align-items: center; gap: 8px; transition: 0.2s; }
-    .join-tg-btn:hover { background: #0077b5; }
+    .nav-links a { text-decoration: none; color: inherit; }
+    .nav-links a.active { color: #111; border-bottom: 2px solid #111; padding-bottom: 4px; }
+    .join-tg-btn { background: #0088cc; color: #fff; padding: 10px 18px; border-radius: 20px; font-size: 13px; font-weight: 700; text-decoration: none; display: flex; align-items: center; gap: 8px; }
 
-    /* Layout Grid */
     .container { max-width: 1200px; margin: 30px auto; padding: 0 20px; display: grid; grid-template-columns: 1fr 340px; gap: 40px; }
 
-    /* Lead Story */
-    .hero-thumb { width: 100%; height: 420px; border-radius: 8px; overflow: hidden; background: #000; position: relative; margin-bottom: 20px; }
+    .hero-thumb { width: 100%; height: 420px; border-radius: 8px; overflow: hidden; background: #000; margin-bottom: 20px; }
     .hero-thumb img { width: 100%; height: 100%; object-fit: cover; }
     .badge-wrap { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; }
     .badge-pill { background: #e63946; color: #fff; font-size: 10px; font-weight: 800; padding: 3px 8px; border-radius: 2px; letter-spacing: 1px; text-transform: uppercase; }
     .read-meta { font-size: 12px; color: #777; font-weight: 500; }
-    .lead-headline { font-family: 'Newsreader', Georgia, serif; font-size: 38px; line-height: 1.18; font-weight: 700; letter-spacing: -0.5px; margin-bottom: 16px; color: #050505; }
+    .lead-headline { font-family: 'Newsreader', Georgia, serif; font-size: 38px; line-height: 1.18; font-weight: 700; margin-bottom: 16px; color: #050505; }
     .lead-summary { font-size: 16px; color: #444; line-height: 1.6; margin-bottom: 24px; }
 
-    /* Analysis Box */
     .analysis-box { background: #f3f5f8; border-left: 3px solid #111; padding: 20px; border-radius: 0 6px 6px 0; margin-bottom: 24px; }
-    .analysis-box h4 { font-size: 12px; text-transform: uppercase; font-family: 'JetBrains Mono', monospace; color: #555; margin-bottom: 10px; letter-spacing: 0.5px; }
+    .analysis-box h4 { font-size: 12px; text-transform: uppercase; font-family: 'JetBrains Mono', monospace; color: #555; margin-bottom: 10px; }
     .analysis-box ul { list-style: none; display: flex; flex-direction: column; gap: 10px; }
     .analysis-box li { font-size: 14px; color: #222; }
-    .analysis-box li strong { color: #000; }
 
-    /* Sidebar Widgets */
     .sidebar { display: flex; flex-direction: column; gap: 24px; }
     .widget { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 20px; }
     .widget-head { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #f0f0f0; padding-bottom: 12px; margin-bottom: 14px; }
@@ -73,10 +64,9 @@
 </head>
 <body>
 
-  <!-- Live Pulse -->
   <div class="top-ticker">
     <div class="ticker-left">
-      <span class="pulse-dot"></span>LIVE PULSE: Delhi Transit Operational • Silicon Dispatch Dispatched
+      <span class="pulse-dot"></span>LIVE PULSE: Delhi Transit Operational • Silicon Intelligence Online
     </div>
     <div class="ticker-right">
       <span>NIFTY: <b class="num-neg">22,600 (-0.39%)</b></span>
@@ -85,7 +75,6 @@
     </div>
   </div>
 
-  <!-- Header Nav -->
   <header>
     <a href="#" class="brand-wrap">
       <span class="brand-mark">CULTYNEX</span>
@@ -104,10 +93,7 @@
     </a>
   </header>
 
-  <!-- Main Content Layout -->
   <div class="container">
-    
-    <!-- Main Article -->
     <main>
       <div class="hero-thumb">
         <img src="https://images.unsplash.com/photo-1550751827-4bd374c3f58b?auto=format&fit=crop&w=1200&q=85" alt="Hardware Infrastructure" />
@@ -138,10 +124,7 @@
       </div>
     </main>
 
-    <!-- Sidebar Widgets -->
     <aside class="sidebar">
-      
-      <!-- Commuter Radar -->
       <div class="widget">
         <div class="widget-head">
           <span class="widget-title">COMMUTER RADAR (DELHI-NCR)</span>
@@ -161,16 +144,13 @@
         </div>
       </div>
 
-      <!-- Word of the Move -->
       <div class="word-card">
         <div class="word-meta">WORD ON THE MOVE</div>
         <div class="word-title">Equanimity</div>
         <div class="word-meaning">[संयम / मानसिक स्थिरता]</div>
         <p class="word-quote">“Maintaining equanimity during Rajiv Chowk transfers is the true hallmark of a seasoned commuter.”</p>
       </div>
-
     </aside>
-
   </div>
 
 </body>
