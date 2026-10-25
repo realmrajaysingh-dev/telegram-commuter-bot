@@ -257,10 +257,12 @@ def send_telegram(data, direct_article_url):
         ]
     }
     
-    telegram_photo_api = f"[https://api.telegram.org/bot](https://api.telegram.org/bot){BOT_TOKEN}/sendPhoto"
+    # Clean plain string URL for Telegram endpoints
+    api_base = "[https://api.telegram.org/bot](https://api.telegram.org/bot)" + str(BOT_TOKEN)
+    
     with open("final_card.png", "rb") as photo:
         r_photo = requests.post(
-            telegram_photo_api,
+            f"{api_base}/sendPhoto",
             data={
                 "chat_id": CHAT_ID,
                 "caption": caption,
@@ -269,12 +271,11 @@ def send_telegram(data, direct_article_url):
             },
             files={"photo": photo}
         )
-        print("Telegram SendPhoto:", r_photo.status_code)
+        print("Telegram SendPhoto Status:", r_photo.status_code)
         r_photo.raise_for_status()
 
-    telegram_poll_api = f"[https://api.telegram.org/bot](https://api.telegram.org/bot){BOT_TOKEN}/sendPoll"
     r_poll = requests.post(
-        telegram_poll_api,
+        f"{api_base}/sendPoll",
         json={
             "chat_id": CHAT_ID,
             "question": f"🎯 {data['quiz_question'][:255]}",
@@ -285,7 +286,7 @@ def send_telegram(data, direct_article_url):
             "is_anonymous": True
         }
     )
-    print("Telegram SendPoll:", r_poll.status_code)
+    print("Telegram SendPoll Status:", r_poll.status_code)
     r_poll.raise_for_status()
 
 async def main():
