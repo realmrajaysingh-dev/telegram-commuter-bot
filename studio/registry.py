@@ -113,6 +113,9 @@ class RoleRegistry:
             role for role in self._roles.values() if role.department_id == department_id
         )
 
+    def all_roles(self) -> tuple[Role, ...]:
+        return tuple(self._roles.values())
+
     def __len__(self) -> int:
         return len(self._roles)
 

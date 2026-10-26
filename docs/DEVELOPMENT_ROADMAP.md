@@ -1,6 +1,6 @@
 # Development Roadmap
 
-**Status:** Proposed plan for Director review. No milestone in this document is implemented or authorized for deployment.
+**Status:** Proposed plan for Director review; local-only prototype milestones are implemented and summarized in `DEVELOPMENT_PROGRESS.md`. No deployment or external integration is authorized by this document.
 
 ## Guiding constraints
 
@@ -16,7 +16,7 @@ Review repository audit, proposed boundaries, policies, the 220-role registry, h
 
 ## Milestone 1 — Local-only contracts and policy validator (implemented on development branch)
 
-The initial offline prototype is implemented in `studio/` with standard-library tooling and synthetic tests. It validates versioned assignment manifests, trusted Director IDs supplied by the local harness, assignment expiry, a seven-day initial window, one explicit extension, the 14-day total/forward horizon, role and department references, task dependencies, status transitions, required evidence, four distinct review gates, observer disagreement, zero-spend default, Director approval, bounded transient retry, and audit-chain integrity. A separate read-only observer engine checks assignment policy, horizon, duplicate tasks, approvals, publishing-boundary violations, audit consistency, failures, observer disagreement, and review independence. Registry metadata is loaded from `AGENT_REGISTRY.md`.
+The offline prototype is implemented in `studio/` with standard-library tooling and synthetic tests. It validates versioned assignment manifests, trusted Director IDs supplied by the local harness, assignment expiry, a seven-day initial window, one explicit extension, the 14-day total/forward horizon, role and department references, task dependencies, status transitions, required evidence, four distinct review gates, observer disagreement, zero-spend default, Director approval, bounded transient retry, and audit-chain integrity. It also provides a persistent issue registry with human-triggered deterministic repairs, plus a Director-controlled project registry and dashboard with explicit lifecycle transitions and validated record links. A separate read-only observer engine checks assignment policy, horizon, duplicate tasks, approvals, publishing-boundary violations, audit consistency, failures, observer disagreement, and review independence. Registry metadata is loaded from `AGENT_REGISTRY.md`.
 
 Automated tests cover these local policy checks, observer reports, and recovery paths. No AI observer models, network requests, credentials, schedules, production workflow edits, public writes, or new dependencies are used. The prototype is not an authentication system or production-ready queue.
 

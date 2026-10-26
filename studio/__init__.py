@@ -15,6 +15,7 @@ from .issues import (
     RepairReport,
     classify_ffmpeg_error,
 )
+from .pipeline import ProjectError, ProjectLinkType, ProjectNotFound, ProjectPipeline, ProjectPriority, ProjectStatus
 
 __all__ = [
     "ObserverEngine",
@@ -30,6 +31,12 @@ __all__ = [
     "LocalRepairObserver",
     "RepairAction",
     "RepairReport",
+    "ProjectError",
+    "ProjectLinkType",
+    "ProjectNotFound",
+    "ProjectPipeline",
+    "ProjectPriority",
+    "ProjectStatus",
     "RegistryError",
     "Role",
     "RoleRegistry",
