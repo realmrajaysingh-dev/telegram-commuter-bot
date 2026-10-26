@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import hashlib
 import json
 from pathlib import Path
 import tempfile
@@ -92,6 +93,30 @@ class TaskAllocationTests(unittest.TestCase):
             task for task in plan["tasks"]
             if key is None or task["task_key"] == key
         )
+
+    def activate_task(self, task_key: str = "research_scope") -> tuple[dict, dict]:
+        plan = self.approve(self.create_plan())
+        task = self.first_task(plan, task_key)
+        plan = self.allocation.start_task(
+            task["task_id"], actor_id=task["role_id"], now=NOW
+        )
+        return plan, self.first_task(plan, task_key)
+
+    def submit_artifact(
+        self,
+        task: dict,
+        *,
+        evidence_type: str | None = None,
+        content: str = "A genuine synthetic evidence artifact.",
+    ) -> dict:
+        result = self.allocation.submit_evidence(
+            task["task_id"],
+            actor_id=task["role_id"],
+            evidence_type=evidence_type or task["evidence_requirements"][0],
+            content=content,
+            now=NOW,
+        )
+        return self.first_task(result, task["task_key"])
 
     def test_valid_project_plan_uses_registered_roles_and_persists_requirements(self) -> None:
         project = self.create_project()
@@ -247,22 +272,163 @@ class TaskAllocationTests(unittest.TestCase):
             first["task_id"], actor_id=first["role_id"], now=NOW
         )
         self.assertEqual(self.first_task(active, "research_scope")["status"], "active")
-        with self.assertRaisesRegex(AllocationError, "evidence is missing"):
+        with self.assertRaisesRegex(AllocationError, "Genuine task evidence is missing or invalid"):
             self.allocation.submit_task_for_review(
-                first["task_id"], actor_id=first["role_id"],
-                evidence_refs=("other",), now=NOW,
+                first["task_id"], actor_id=first["role_id"], now=NOW,
             )
+        active_task = self.first_task(active, "research_scope")
+        self.submit_artifact(active_task, content="Research scope evidence with actual content.")
         review = self.allocation.submit_task_for_review(
-            first["task_id"], actor_id=first["role_id"],
-            evidence_refs=("research_brief",), now=NOW,
+            first["task_id"], actor_id=first["role_id"], now=NOW,
         )
         self.assertEqual(self.first_task(review, "research_scope")["status"], "review")
+        self.assertTrue(self.first_task(review, "research_scope")["evidence_verified"])
         completed = self.allocation.complete_task(
             first["task_id"], actor_id=first["role_id"], now=NOW
         )
         self.assertEqual(self.first_task(completed, "research_scope")["status"], "completed")
         self.assertEqual(self.first_task(completed, "source_collection")["status"], "ready")
         self.assertEqual(self.first_task(completed, "source_collection")["dependencies"][0]["status"], "completed")
+
+    def test_empty_evidence_artifact_is_rejected(self) -> None:
+        _, task = self.activate_task()
+        for content in ("", " \t\n"):
+            with self.subTest(content=content):
+                with self.assertRaisesRegex(AllocationError, "cannot be empty"):
+                    self.allocation.submit_evidence(
+                        task["task_id"],
+                        actor_id=task["role_id"],
+                        evidence_type="research_brief",
+                        content=content,
+                        now=NOW,
+                    )
+
+    def test_unrequired_evidence_type_is_rejected(self) -> None:
+        _, task = self.activate_task()
+        with self.assertRaisesRegex(AllocationError, "must match a requirement"):
+            self.allocation.submit_evidence(
+                task["task_id"],
+                actor_id=task["role_id"],
+                evidence_type="source_pack",
+                content="This is not the required evidence type.",
+                now=NOW,
+            )
+
+    def test_duplicate_valid_evidence_type_is_rejected(self) -> None:
+        _, task = self.activate_task()
+        self.submit_artifact(task)
+        with self.assertRaisesRegex(AllocationError, "already been submitted"):
+            self.allocation.submit_evidence(
+                task["task_id"],
+                actor_id=task["role_id"],
+                evidence_type="research_brief",
+                content="A second artifact of a type already submitted.",
+                now=NOW,
+            )
+        self.assertEqual(
+            self.allocation._connection.execute(
+                "SELECT COUNT(*) FROM studio_evidence_artifacts WHERE task_id=?",
+                (task["task_id"],),
+            ).fetchone()[0],
+            1,
+        )
+
+    def test_artifact_is_persisted_locally_and_bound_to_task_and_hash(self) -> None:
+        _, task = self.activate_task()
+        content = "Persisted research brief: primary sources and questions."
+        updated = self.submit_artifact(task, content=content)
+        artifact = updated["evidence_artifacts"][0]
+        self.assertTrue(artifact["verified"])
+        self.assertEqual(artifact["evidence_type"], "research_brief")
+        self.assertEqual(artifact["sha256"], hashlib.sha256(content.encode()).hexdigest())
+        row = self.allocation._connection.execute(
+            "SELECT * FROM studio_evidence_artifacts WHERE artifact_id=?",
+            (artifact["artifact_id"],),
+        ).fetchone()
+        path = self.allocation._evidence_directory() / row["storage_name"]
+        self.assertEqual(path.read_text(encoding="utf-8"), content)
+        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+        self.assertTrue(updated["evidence_verified"])
+
+    def test_tampered_evidence_fails_review_and_observer_checks(self) -> None:
+        _, task = self.activate_task()
+        updated = self.submit_artifact(task, content="Original evidence body.")
+        self.allocation.submit_task_for_review(
+            task["task_id"], actor_id=task["role_id"], now=NOW
+        )
+        artifact_id = updated["evidence_artifacts"][0]["artifact_id"]
+        row = self.allocation._connection.execute(
+            "SELECT storage_name FROM studio_evidence_artifacts WHERE artifact_id=?",
+            (artifact_id,),
+        ).fetchone()
+        (self.allocation._evidence_directory() / row["storage_name"]).write_text(
+            "Tampered evidence body.", encoding="utf-8"
+        )
+        with self.assertRaisesRegex(AllocationError, "artifact-hash-mismatch"):
+            self.allocation.complete_task(
+                task["task_id"], actor_id=task["role_id"], now=NOW
+            )
+        report = self.allocation.refresh_observer_findings(task["plan_id"], now=NOW)
+        self.assertIn(
+            "TASK_EVIDENCE_ARTIFACT_INVALID",
+            {finding["code"] for finding in report["findings"]},
+        )
+
+    def test_artifact_associated_with_another_task_cannot_satisfy_requirement(self) -> None:
+        first_plan, first = self.activate_task()
+        self.submit_artifact(first, content="Evidence belongs only to first task.")
+        second_project = self.create_project()
+        second_plan = self.approve(self.create_plan(project=second_project))
+        second = self.first_task(second_plan, "research_scope")
+        self.allocation.start_task(second["task_id"], actor_id=second["role_id"], now=NOW)
+        artifact_id = self.first_task(
+            self.allocation.get_plan(first_plan["plan_id"]), "research_scope"
+        )["evidence"][0]
+        with self.allocation._connection:
+            self.allocation._connection.execute(
+                "UPDATE studio_allocation_tasks SET evidence_json=? WHERE task_id=?",
+                (json.dumps([artifact_id]), second["task_id"]),
+            )
+        with self.assertRaisesRegex(AllocationError, "artifact-task-mismatch"):
+            self.allocation.submit_task_for_review(
+                second["task_id"], actor_id=second["role_id"], now=NOW
+            )
+
+    def test_old_label_only_review_task_cannot_be_completed(self) -> None:
+        plan, task = self.activate_task()
+        with self.allocation._connection:
+            self.allocation._connection.execute(
+                "UPDATE studio_allocation_tasks SET status='review', evidence_json=? WHERE task_id=?",
+                (json.dumps(["research_brief"]), task["task_id"]),
+            )
+        with self.assertRaisesRegex(AllocationError, "without verified evidence artifacts"):
+            self.allocation.complete_task(
+                task["task_id"], actor_id=task["role_id"], now=NOW
+            )
+        persisted = self.allocation.get_plan(plan["plan_id"])
+        current = self.first_task(persisted, "research_scope")
+        self.assertEqual(current["status"], "review")
+        self.assertFalse(current["evidence_verified"])
+
+    def test_review_task_can_supply_real_evidence_then_must_be_reviewed_again(self) -> None:
+        plan, task = self.activate_task()
+        with self.allocation._connection:
+            self.allocation._connection.execute(
+                "UPDATE studio_allocation_tasks SET status='review', evidence_json=? WHERE task_id=?",
+                (json.dumps(["research_brief"]), task["task_id"]),
+            )
+        legacy_task = self.first_task(
+            self.allocation.get_plan(plan["plan_id"]), "research_scope"
+        )
+        repaired = self.submit_artifact(
+            legacy_task, content="Actual evidence submitted after the old label."
+        )
+        self.assertEqual(repaired["status"], "active")
+        self.assertTrue(repaired["evidence_verified"])
+        reviewed = self.allocation.submit_task_for_review(
+            task["task_id"], actor_id=task["role_id"], now=NOW
+        )
+        self.assertEqual(self.first_task(reviewed, "research_scope")["status"], "review")
 
     def test_role_department_mismatch_is_reported_by_persisted_observer(self) -> None:
         plan = self.create_plan()
@@ -356,6 +522,8 @@ class TaskAllocationTests(unittest.TestCase):
             self.assertIn("Generate Task Plan", page)
             self.assertIn("Issue Inbox", page)
             self.assertIn("Issue details", page)
+            self.assertIn("Submit Evidence Artifact", page)
+            self.assertIn("A type label alone is not evidence", page)
 
             body = {
                 "project_id": project["project_id"],
@@ -402,6 +570,44 @@ class TaskAllocationTests(unittest.TestCase):
             with urlopen(approve_request, timeout=3) as response:
                 approved = json.loads(response.read())
             self.assertEqual(approved["status"], "approved")
+            task = self.first_task(approved, "research_scope")
+            start_request = Request(
+                f"{base}/api/allocation-tasks/{task['task_id']}/start",
+                data=json.dumps({"actor_id": task["role_id"]}).encode(),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urlopen(start_request, timeout=3) as response:
+                started = json.loads(response.read())
+            active_task = self.first_task(started, "research_scope")
+            evidence_request = Request(
+                f"{base}/api/allocation-tasks/{task['task_id']}/evidence",
+                data=json.dumps({
+                    "actor_id": task["role_id"],
+                    "evidence_type": "research_brief",
+                    "content": "Dashboard-submitted actual local evidence.",
+                }).encode(),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urlopen(evidence_request, timeout=3) as response:
+                evidenced = json.loads(response.read())
+            evidenced_task = self.first_task(evidenced, "research_scope")
+            self.assertEqual(active_task["status"], "active")
+            self.assertTrue(evidenced_task["evidence_verified"])
+            self.assertEqual(
+                evidenced_task["evidence_artifacts"][0]["evidence_type"],
+                "research_brief",
+            )
+            review_request = Request(
+                f"{base}/api/allocation-tasks/{task['task_id']}/review",
+                data=json.dumps({"actor_id": task["role_id"]}).encode(),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urlopen(review_request, timeout=3) as response:
+                reviewed = json.loads(response.read())
+            self.assertEqual(self.first_task(reviewed, "research_scope")["status"], "review")
             with urlopen(f"{base}/api/dashboard") as response:
                 issue_snapshot = json.loads(response.read())
             self.assertIn(issue["issue_id"], {item["issue_id"] for item in issue_snapshot["issues"]})

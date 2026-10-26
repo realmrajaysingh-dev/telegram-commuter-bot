@@ -13,7 +13,17 @@ become ready.
 Plans, assigned registered roles, evidence requirements, verification gates,
 task transitions, retry/failure records, Observer findings, approvals, and
 hash-chained audit events are persisted in the same local SQLite database as
-the Studio project records. The initial planning window is at most seven days;
+the Studio project records. Before a task can enter Review or Completed, each
+required evidence type must have a non-empty UTF-8 text artifact stored in a
+restricted local directory beside the database. The task record references the
+artifact; its task association, type, file, size, and SHA-256 hash are rechecked
+at both transitions. The dashboard accepts artifact text only (not paths,
+uploads, or external URLs), with a 256 KiB per-artifact limit. Existing
+label-only evidence is not migrated or treated as proof; a task in Review must
+receive real evidence and be submitted for review again.
+
+Artifact integrity does not verify factual accuracy, rights, licensing, or
+consent of the submitted text. The initial planning window is at most seven days;
 an approving Director may explicitly extend it once by seven days, subject to
 the fourteen-day assignment horizon. Task retries are capped at three attempts.
 The workflow only records and routes work; it does not generate content, render

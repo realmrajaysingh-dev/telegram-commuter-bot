@@ -48,7 +48,7 @@ One intermediate run failed because the timestamp helper's `timezone` import was
 - **Existing repository concern:** the scheduled bot workflow has `contents: write` and sends Telegram content without the proposed review/Director approval gates. It remains unchanged and may already publish on its configured schedule. This session did not trigger it.
 - The prototype's Director IDs are a trusted local configuration/test-harness input, not authentication. Do not expose it as a service or accept untrusted local callers.
 - SQLite records are local plain-text data and are not tamper-proof against an operator with database-file access. The audit hash chain detects accidental or unsophisticated alteration but is not a signed external ledger.
-- Review and observer evidence references are identifiers only; the prototype does not store or verify source documents, rights, licenses, consent, or artifact files.
+- Review and observer evidence are now backed by persisted local text artifacts with task/type association, file, size, and SHA-256 verification before Review and Completed. This verifies artifact integrity, not source accuracy, rights, licenses, or consent. Older label-only references are not evidence and are not backfilled.
 - Registry dependencies describe prerequisites but are not yet expanded into executable task graphs.
 - There is no CLI, CSV/XLSX importer, automated scheduler, watchdog service, production migration, backup/retention design, authentication, or external API adapter.
 - No critical exposed credential was found in the inspected tracked repository content. The local-storage token handling remains a material security concern.

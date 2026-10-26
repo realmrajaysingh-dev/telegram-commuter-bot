@@ -10,7 +10,7 @@ import re
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-from .allocation import AllocationError, TaskAllocationEngine
+from .allocation import MAX_EVIDENCE_BYTES, AllocationError, TaskAllocationEngine
 from .issues import IssueEngine, IssueError, IssueNotFound
 from .observer import ObserverError
 from .pipeline import ProjectError, ProjectNotFound, ProjectPipeline
@@ -19,6 +19,7 @@ from .registry import RoleRegistry
 
 _ISSUE_ID_PATTERN = re.compile(r"^[a-f0-9]{32}$")
 _MAX_REQUEST_BYTES = 8_192
+_MAX_EVIDENCE_REQUEST_BYTES = MAX_EVIDENCE_BYTES * 4 + 4_096
 
 
 class _DashboardHTTPServer(ThreadingHTTPServer):
@@ -79,6 +80,7 @@ _DASHBOARD_HTML = """<!doctype html>
     .demo-tag{display:inline-block;padding:2px 6px;border-radius:999px;background:#fff0c2;color:#624b0a;font-size:.72rem;font-weight:700}
     .project-actions{display:flex;gap:7px;align-items:center;margin:8px 0}.project-actions select{max-width:180px}
     .project-links{font-size:.84rem}.project-links li{overflow-wrap:anywhere}
+    .evidence-content{width:100%;min-height:110px}
     @media(max-width:760px){.project-counts{grid-template-columns:repeat(2,1fr)}.project-grid{grid-template-columns:1fr}}
     @media(max-width:760px){.counts{grid-template-columns:repeat(2,1fr)}.layout{grid-template-columns:1fr}.inbox{max-height:36vh}}
   </style>
@@ -124,7 +126,7 @@ _DASHBOARD_HTML = """<!doctype html>
     <br>
     <section class="panel" aria-label="CEO work allocation">
       <h2>CEO Work Allocation <span class="demo">Local task plans</span></h2>
-      <p class="muted">Planning creates a draft only. A Director must explicitly approve a plan before tasks become ready. No content is produced or published automatically.</p>
+      <p class="muted">Planning creates a draft only. A Director must explicitly approve a plan before tasks become ready. Evidence is stored locally as inert text and never executed.</p>
       <div class="project-grid">
         <section class="project-form">
           <label>Select Project<select id="allocation-project"><option value="">Select a project</option></select></label>
@@ -308,25 +310,49 @@ function renderTaskPlan(plan) {
     item.append(el("p",`${task.department_id} · ${task.role_id} · ${task.role_title} · Priority: ${task.priority} · Attempts: ${task.attempts}/${task.max_attempts}`));
     item.append(el("p",task.description));
     item.append(el("p",`Dependencies: ${task.dependencies.map(value=>`${value.task_id} (${value.status})`).join(", ")||"None"}`));
-    item.append(el("p",`Evidence required: ${task.evidence_requirements.join(", ")} · Submitted: ${task.evidence.join(", ")||"None"}`));
+    item.append(el("p",`Evidence required: ${task.evidence_requirements.join(", ")}`));
+    for(const artifact of task.evidence_artifacts) {
+      item.append(el("p",`${artifact.evidence_type||"Unverified reference"} · ${artifact.verified?"Verified":"NOT VERIFIED"}${artifact.sha256?` · SHA-256 ${artifact.sha256}`:""}${artifact.error?` · ${artifact.error}`:""}`,artifact.verified?"muted":"notice"));
+    }
     item.append(el("p",`Verification gates: ${task.verification_gates.join(" · ")}`));
     if(task.last_error_code) item.append(el("p",`Last failure: ${task.last_error_code}${task.retryable?" · retryable":""}`,"notice"));
+    const verifiedTypes=new Set(task.evidence_artifacts.filter(artifact=>artifact.verified).map(artifact=>artifact.evidence_type));
+    const missingEvidence=task.evidence_requirements.filter(type=>!verifiedTypes.has(type));
+    if(missingEvidence.length&&["active","review"].includes(task.status)) {
+      const evidenceType=el("select"); evidenceType.id=`evidence-type-${task.task_id}`;
+      for(const type of missingEvidence) evidenceType.append(new Option(type,type));
+      const content=el("textarea"); content.id=`evidence-content-${task.task_id}`;
+      content.className="evidence-content"; content.maxLength=262144;
+      content.placeholder="Enter actual evidence artifact text; saved locally as inert UTF-8 text (maximum 256 KiB).";
+      const upload=el("button","Submit Evidence Artifact"); upload.type="button";
+      upload.addEventListener("click",()=>uploadAllocationEvidence(task, evidenceType.value, content.value, upload));
+      item.append(el("p","A type label alone is not evidence. File paths and URLs are not accepted.","notice"),evidenceType,content,upload);
+    }
     if(task.status==="ready") {
       const start=el("button",`Start · ${task.role_id}`); start.type="button";
       start.addEventListener("click",()=>allocationTaskAction(task.task_id,"start",{actor_id:task.role_id},start));
       item.append(start);
     }
     if(task.status==="active") {
-      const review=el("button","Submit for Review"); review.type="button";
-      review.addEventListener("click",()=>submitAllocationTaskReview(task,review));
       const fail=el("button","Report Failure"); fail.type="button";
       fail.addEventListener("click",()=>reportAllocationTaskFailure(task,fail));
-      item.append(review,fail);
+      if(task.evidence_verified) {
+        const review=el("button","Submit for Review"); review.type="button";
+        review.addEventListener("click",()=>submitAllocationTaskReview(task,review));
+        item.append(review);
+      } else {
+        item.append(el("p","Review is unavailable until every required artifact is verified.","notice"));
+      }
+      item.append(fail);
     }
     if(task.status==="review") {
-      const complete=el("button","Complete Task"); complete.type="button";
-      complete.addEventListener("click",()=>allocationTaskAction(task.task_id,"complete",{actor_id:task.role_id},complete));
-      item.append(complete);
+      if(task.evidence_verified) {
+        const complete=el("button","Complete Task"); complete.type="button";
+        complete.addEventListener("click",()=>allocationTaskAction(task.task_id,"complete",{actor_id:task.role_id},complete));
+        item.append(complete);
+      } else {
+        item.append(el("p","Completion blocked: provide genuine evidence, then submit the task for review again.","notice"));
+      }
     }
     if(task.status==="blocked"&&task.retryable&&task.attempts<task.max_attempts) {
       const retry=el("button","Retry Task"); retry.type="button";
@@ -395,11 +421,12 @@ async function allocationRequest(url,payload,button) {
     await refreshTaskPlan();
   } catch(error) { alert(`Task plan action failed: ${error.message}`); button.disabled=false; }
 }
+async function uploadAllocationEvidence(task,evidence_type,content,button) {
+  if(!content.trim()) { alert("Enter actual non-empty evidence content."); return; }
+  await allocationTaskAction(task.task_id,"evidence",{actor_id:task.role_id,evidence_type,content},button);
+}
 async function submitAllocationTaskReview(task,button) {
-  const value=window.prompt(`Enter evidence references (required: ${task.evidence_requirements.join(", ")})`,task.evidence_requirements.join(","));
-  if(value===null) return;
-  const evidence_refs=value.split(",").map(item=>item.trim()).filter(Boolean);
-  await allocationTaskAction(task.task_id,"review",{actor_id:task.role_id,evidence_refs},button);
+  await allocationTaskAction(task.task_id,"review",{actor_id:task.role_id},button);
 }
 async function reportAllocationTaskFailure(task,button) {
   const error_code=window.prompt("Failure code (uppercase identifier; no sensitive details):");
@@ -679,7 +706,7 @@ def create_dashboard_server(
             path = urlparse(self.path).path
             if path == "/api/task-plans" or re.fullmatch(
                 r"/api/(?:task-plans/[A-Za-z0-9][A-Za-z0-9._-]{0,63}/(?:approve|extend|observer)|"
-                r"allocation-tasks/[A-Za-z0-9][A-Za-z0-9._-]{0,63}/(?:start|review|complete|fail|retry))",
+                r"allocation-tasks/[A-Za-z0-9][A-Za-z0-9._-]{0,63}/(?:evidence|start|review|complete|fail|retry))",
                 path,
             ):
                 self._handle_allocation_action(path)
@@ -732,7 +759,12 @@ def create_dashboard_server(
 
         def _handle_allocation_action(self, path: str) -> None:
             try:
-                payload = self._read_payload()
+                max_bytes = (
+                    _MAX_EVIDENCE_REQUEST_BYTES
+                    if path.endswith("/evidence")
+                    else _MAX_REQUEST_BYTES
+                )
+                payload = self._read_payload(max_bytes=max_bytes)
                 if path == "/api/task-plans":
                     allowed = {
                         "project_id", "director_id", "template", "director_instructions",
@@ -771,7 +803,7 @@ def create_dashboard_server(
                     return
 
                 task_action = re.fullmatch(
-                    r"/api/allocation-tasks/([A-Za-z0-9][A-Za-z0-9._-]{0,63})/(start|review|complete|fail|retry)",
+                    r"/api/allocation-tasks/([A-Za-z0-9][A-Za-z0-9._-]{0,63})/(evidence|start|review|complete|fail|retry)",
                     path,
                 )
                 if not task_action:
@@ -787,13 +819,21 @@ def create_dashboard_server(
                         result = task_allocation.complete_task(task_id, actor_id=payload["actor_id"])
                     else:
                         result = task_allocation.retry_task(task_id, actor_id=payload["actor_id"])
+                elif operation == "evidence":
+                    if set(payload) != {"actor_id", "evidence_type", "content"}:
+                        raise AllocationError("Task actor, evidence type, and artifact content are required")
+                    result = task_allocation.submit_evidence(
+                        task_id,
+                        actor_id=payload["actor_id"],
+                        evidence_type=payload["evidence_type"],
+                        content=payload["content"],
+                    )
                 elif operation == "review":
-                    if set(payload) != {"actor_id", "evidence_refs"}:
-                        raise AllocationError("Task actor and evidence references are required")
+                    if set(payload) != {"actor_id"}:
+                        raise AllocationError("Only the assigned task actor is accepted")
                     result = task_allocation.submit_task_for_review(
                         task_id,
                         actor_id=payload["actor_id"],
-                        evidence_refs=payload["evidence_refs"],
                     )
                 else:
                     if set(payload) != {"actor_id", "error_code", "retryable"}:
@@ -813,9 +853,9 @@ def create_dashboard_server(
             except (ValueError, TypeError, json.JSONDecodeError) as exc:
                 self._send_json(400, {"error": str(exc)})
 
-        def _read_payload(self) -> dict[str, Any]:
+        def _read_payload(self, *, max_bytes: int = _MAX_REQUEST_BYTES) -> dict[str, Any]:
             length = int(self.headers.get("Content-Length", "0"))
-            if length <= 0 or length > _MAX_REQUEST_BYTES:
+            if length <= 0 or length > max_bytes:
                 raise ProjectError("Request body size is invalid")
             payload = json.loads(self.rfile.read(length))
             if not isinstance(payload, dict):

@@ -6,9 +6,13 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import StrEnum
 import hashlib
+import hmac
 import json
+import os
 import re
+import secrets
 import sqlite3
+import stat
 import threading
 from pathlib import Path
 from typing import Any, Sequence
@@ -26,6 +30,7 @@ from .registry import RegistryError, RoleRegistry
 
 
 MAX_TASK_ATTEMPTS = 3
+MAX_EVIDENCE_BYTES = 256 * 1024
 ALLOCATION_OBSERVER_ID = "observer-task-allocation"
 BASE_AUDIT_HASH = "0" * 64
 _ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
@@ -400,16 +405,24 @@ class TaskAllocationObserver:
             )
             if task["attempts"] > task["max_attempts"]:
                 finding("TASK_RETRY_LIMIT_EXCEEDED", task_id, f"task:{task_id}")
-            required_evidence = set(evidence_requirements)
-            supplied_evidence = set(evidence_values)
             if (
                 task["status"] in {
                     AllocationTaskStatus.REVIEW.value,
                     AllocationTaskStatus.COMPLETED.value,
                 }
-                and not required_evidence <= supplied_evidence
             ):
-                finding("TASK_REVIEW_EVIDENCE_MISSING", task_id, f"task:{task_id}")
+                validation = task.get("_evidence_validation")
+                if not isinstance(validation, dict) or not validation.get("is_valid"):
+                    finding(
+                        "TASK_EVIDENCE_ARTIFACT_INVALID",
+                        task_id,
+                        f"task:{task_id}",
+                        *(
+                            tuple(validation.get("errors", ()))
+                            if isinstance(validation, dict)
+                            else ("evidence-validation-unavailable",)
+                        ),
+                    )
             for dependency_id in dependencies:
                 dependency = by_id.get(dependency_id)
                 if dependency and dependency["status"] != AllocationTaskStatus.COMPLETED.value:
@@ -513,6 +526,16 @@ class TaskAllocationEngine:
                     started_at TEXT,
                     completed_at TEXT,
                     UNIQUE(plan_id, task_key)
+                );
+                CREATE TABLE IF NOT EXISTS studio_evidence_artifacts (
+                    artifact_id TEXT PRIMARY KEY,
+                    task_id TEXT NOT NULL REFERENCES studio_allocation_tasks(task_id),
+                    evidence_type TEXT NOT NULL,
+                    storage_name TEXT NOT NULL UNIQUE,
+                    sha256 TEXT NOT NULL,
+                    size_bytes INTEGER NOT NULL,
+                    submitted_by TEXT NOT NULL,
+                    created_at TEXT NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS studio_plan_approvals (
                     approval_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -826,6 +849,296 @@ class TaskAllocationEngine:
             )
         ]
 
+    def _evidence_directory(self) -> Path:
+        database_parent = self.database.parent.resolve()
+        root = database_parent / f".{self.database.name}.evidence"
+        try:
+            root.mkdir(mode=0o700, exist_ok=True)
+            root_stat = root.lstat()
+        except OSError as exc:
+            raise AllocationError("Local evidence directory is unavailable") from exc
+        if not stat.S_ISDIR(root_stat.st_mode) or stat.S_ISLNK(root_stat.st_mode):
+            raise AllocationError("Local evidence directory must be a real directory")
+        try:
+            os.chmod(root, 0o700, follow_symlinks=False)
+        except OSError as exc:
+            raise AllocationError("Local evidence directory permissions could not be secured") from exc
+        resolved = root.resolve(strict=True)
+        if resolved.parent != database_parent:
+            raise AllocationError("Local evidence directory escaped its database directory")
+        return resolved
+
+    def _verify_artifact_file(
+        self, artifact: dict[str, Any], task_id: str
+    ) -> tuple[bool, str | None]:
+        if artifact["task_id"] != task_id:
+            return False, "artifact-task-mismatch"
+        artifact_id = artifact["artifact_id"]
+        if (
+            not isinstance(artifact_id, str)
+            or not re.fullmatch(r"[a-f0-9]{32}", artifact_id)
+            or artifact["storage_name"] != f"{artifact_id}.txt"
+        ):
+            return False, "artifact-storage-reference-invalid"
+        if (
+            not isinstance(artifact["size_bytes"], int)
+            or artifact["size_bytes"] <= 0
+            or artifact["size_bytes"] > MAX_EVIDENCE_BYTES
+            or not isinstance(artifact["sha256"], str)
+            or not re.fullmatch(r"[a-f0-9]{64}", artifact["sha256"])
+        ):
+            return False, "artifact-metadata-invalid"
+        try:
+            root = self._evidence_directory()
+            path = root / artifact["storage_name"]
+            path_stat = path.lstat()
+            if not stat.S_ISREG(path_stat.st_mode) or stat.S_ISLNK(path_stat.st_mode):
+                return False, "artifact-file-invalid"
+            if path.resolve(strict=True).parent != root:
+                return False, "artifact-path-invalid"
+            flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+            descriptor = os.open(path, flags)
+            try:
+                opened_stat = os.fstat(descriptor)
+                if not stat.S_ISREG(opened_stat.st_mode):
+                    return False, "artifact-file-invalid"
+                if opened_stat.st_size <= 0:
+                    return False, "artifact-empty"
+                if opened_stat.st_size > MAX_EVIDENCE_BYTES:
+                    return False, "artifact-too-large"
+                chunks: list[bytes] = []
+                total = 0
+                while True:
+                    chunk = os.read(descriptor, min(65_536, MAX_EVIDENCE_BYTES + 1 - total))
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                    total += len(chunk)
+                    if total > MAX_EVIDENCE_BYTES:
+                        return False, "artifact-too-large"
+                content = b"".join(chunks)
+            finally:
+                os.close(descriptor)
+        except FileNotFoundError:
+            return False, "artifact-file-missing"
+        except (OSError, AllocationError):
+            return False, "artifact-file-unavailable"
+        if len(content) != artifact["size_bytes"]:
+            return False, "artifact-size-mismatch"
+        try:
+            if not content.decode("utf-8").strip():
+                return False, "artifact-empty"
+        except UnicodeDecodeError:
+            return False, "artifact-content-invalid"
+        digest = hashlib.sha256(content).hexdigest()
+        if not hmac.compare_digest(digest, artifact["sha256"]):
+            return False, "artifact-hash-mismatch"
+        return True, None
+
+    def _validate_task_evidence(self, task: dict[str, Any]) -> dict[str, Any]:
+        errors: list[str] = []
+        try:
+            required = json.loads(task["evidence_requirements_json"])
+            references = json.loads(task["evidence_json"])
+            if (
+                not isinstance(required, list)
+                or not required
+                or any(not isinstance(value, str) or not _ID_PATTERN.fullmatch(value) for value in required)
+                or len(required) != len(set(required))
+                or not isinstance(references, list)
+                or any(not isinstance(value, str) or not _ID_PATTERN.fullmatch(value) for value in references)
+                or len(references) != len(set(references))
+            ):
+                raise ValueError
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return {
+                "is_valid": False,
+                "errors": ["evidence-reference-data-invalid"],
+                "artifacts": [],
+            }
+
+        verified_types: set[str] = set()
+        artifacts: list[dict[str, Any]] = []
+        for artifact_id in references:
+            row = self._connection.execute(
+                "SELECT * FROM studio_evidence_artifacts WHERE artifact_id = ?",
+                (artifact_id,),
+            ).fetchone()
+            if row is None:
+                errors.append(f"artifact-record-missing:{artifact_id}")
+                artifacts.append(
+                    {
+                        "artifact_id": artifact_id,
+                        "evidence_type": None,
+                        "verified": False,
+                        "error": "artifact-record-missing",
+                    }
+                )
+                continue
+            artifact = dict(row)
+            valid, error = self._verify_artifact_file(artifact, task["task_id"])
+            if artifact["evidence_type"] not in required:
+                valid, error = False, "artifact-type-not-required"
+            if valid and artifact["evidence_type"] in verified_types:
+                valid, error = False, "duplicate-artifact-type"
+            if valid:
+                verified_types.add(artifact["evidence_type"])
+            else:
+                errors.append(f"{error}:{artifact_id}")
+            artifacts.append(
+                {
+                    "artifact_id": artifact_id,
+                    "evidence_type": artifact["evidence_type"],
+                    "sha256": artifact["sha256"],
+                    "size_bytes": artifact["size_bytes"],
+                    "created_at": artifact["created_at"],
+                    "verified": valid,
+                    "error": error,
+                }
+            )
+        for evidence_type in sorted(set(required) - verified_types):
+            errors.append(f"required-artifact-missing:{evidence_type}")
+        return {
+            "is_valid": not errors,
+            "errors": errors,
+            "artifacts": artifacts,
+        }
+
+    def submit_evidence(
+        self,
+        task_id: str,
+        *,
+        actor_id: str,
+        evidence_type: str,
+        content: str,
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
+        current = now or datetime.now(timezone.utc)
+        if not isinstance(content, str):
+            raise AllocationError("Evidence content must be text")
+        encoded = content.encode("utf-8")
+        if not content.strip():
+            raise AllocationError("Evidence artifact cannot be empty")
+        if len(encoded) > MAX_EVIDENCE_BYTES:
+            raise AllocationError(
+                f"Evidence artifact exceeds the {MAX_EVIDENCE_BYTES}-byte limit"
+            )
+
+        artifact_path: Path | None = None
+        file_descriptor: int | None = None
+        try:
+            with self._lock, self._connection:
+                task = self._task_row(task_id)
+                actor = self._require_task_actor(task, actor_id)
+                plan = self._plan_row(task["plan_id"])
+                self._require_active_plan(plan, now=current)
+                if task["status"] not in {
+                    AllocationTaskStatus.ACTIVE.value,
+                    AllocationTaskStatus.REVIEW.value,
+                }:
+                    raise AllocationError("Evidence can only be submitted for active or review tasks")
+                requirements = json.loads(task["evidence_requirements_json"])
+                if not isinstance(evidence_type, str) or evidence_type not in requirements:
+                    raise AllocationError("Evidence type must match a requirement for this task")
+
+                existing_refs = json.loads(task["evidence_json"])
+                retained_refs: list[str] = []
+                for reference in existing_refs:
+                    if not isinstance(reference, str):
+                        continue
+                    row = self._connection.execute(
+                        "SELECT * FROM studio_evidence_artifacts WHERE artifact_id = ?",
+                        (reference,),
+                    ).fetchone()
+                    if row is None:
+                        continue
+                    artifact = dict(row)
+                    valid, _ = self._verify_artifact_file(artifact, task_id)
+                    if valid and artifact["evidence_type"] in requirements:
+                        retained_refs.append(reference)
+                        if artifact["evidence_type"] == evidence_type:
+                            raise AllocationError(
+                                f"Evidence type {evidence_type} has already been submitted"
+                            )
+
+                prior_artifacts = self._connection.execute(
+                    """
+                    SELECT * FROM studio_evidence_artifacts
+                    WHERE task_id = ? AND evidence_type = ?
+                    """,
+                    (task_id, evidence_type),
+                ).fetchall()
+                for row in prior_artifacts:
+                    valid, _ = self._verify_artifact_file(dict(row), task_id)
+                    if valid:
+                        raise AllocationError(
+                            f"Evidence type {evidence_type} has already been submitted"
+                        )
+
+                evidence_root = self._evidence_directory()
+                artifact_id = secrets.token_hex(16)
+                storage_name = f"{artifact_id}.txt"
+                artifact_path = evidence_root / storage_name
+                flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+                file_descriptor = os.open(artifact_path, flags, 0o600)
+                with os.fdopen(file_descriptor, "wb", closefd=True) as artifact_file:
+                    file_descriptor = None
+                    artifact_file.write(encoded)
+                    artifact_file.flush()
+                    os.fsync(artifact_file.fileno())
+
+                digest = hashlib.sha256(encoded).hexdigest()
+                self._connection.execute(
+                    """
+                    INSERT INTO studio_evidence_artifacts
+                        (artifact_id, task_id, evidence_type, storage_name,
+                         sha256, size_bytes, submitted_by, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        artifact_id, task_id, evidence_type, storage_name,
+                        digest, len(encoded), actor, _timestamp(current),
+                    ),
+                )
+                references = sorted(set(retained_refs + [artifact_id]))
+                next_status = (
+                    AllocationTaskStatus.ACTIVE.value
+                    if task["status"] == AllocationTaskStatus.REVIEW.value
+                    else task["status"]
+                )
+                self._connection.execute(
+                    """
+                    UPDATE studio_allocation_tasks
+                    SET evidence_json = ?, status = ?, updated_at = ?
+                    WHERE task_id = ?
+                    """,
+                    (_json(references), next_status, _timestamp(current), task_id),
+                )
+                self._audit(
+                    plan["plan_id"], task_id, "evidence_artifact_submitted", actor,
+                    {
+                        "artifact_id": artifact_id,
+                        "evidence_type": evidence_type,
+                        "sha256": digest,
+                        "size_bytes": len(encoded),
+                    },
+                    current,
+                )
+                validation = self._validate_task_evidence(self._task_row(task_id))
+                if not validation["is_valid"] and len(requirements) == len(references):
+                    raise AllocationError("Submitted evidence failed verification")
+                self._refresh_observer(plan["plan_id"], now=current)
+        except BaseException:
+            if file_descriptor is not None:
+                os.close(file_descriptor)
+            if artifact_path is not None:
+                try:
+                    artifact_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+            raise
+        return self.get_plan(plan["plan_id"])
+
     def _refresh_observer(self, plan_id: str, *, now: datetime) -> dict[str, Any]:
         plan = self._plan_row(plan_id)
         project = self._connection.execute(
@@ -835,6 +1148,12 @@ class TaskAllocationEngine:
         plan["project_status"] = project["status"] if project else None
         plan["project_created_by"] = project["created_by"] if project else None
         tasks = self._task_rows(plan_id)
+        for task in tasks:
+            if task["status"] in {
+                AllocationTaskStatus.REVIEW.value,
+                AllocationTaskStatus.COMPLETED.value,
+            }:
+                task["_evidence_validation"] = self._validate_task_evidence(task)
         approvals = self._approval_rows(plan_id)
         findings = self.observer.inspect(plan, tasks, approvals, now=now)
         run_id = "obs-" + uuid.uuid4().hex[:24]
@@ -928,6 +1247,7 @@ class TaskAllocationEngine:
             tasks = self._task_rows(plan_id)
             by_id = {task["task_id"]: task for task in tasks}
             for task in tasks:
+                validation = self._validate_task_evidence(task)
                 dependencies = json.loads(task.pop("dependencies_json"))
                 try:
                     task["role_title"] = self.registry.get(task["role_id"]).title
@@ -947,6 +1267,9 @@ class TaskAllocationEngine:
                     task.pop("verification_gates_json")
                 )
                 task["evidence"] = json.loads(task.pop("evidence_json"))
+                task["evidence_artifacts"] = validation["artifacts"]
+                task["evidence_errors"] = validation["errors"]
+                task["evidence_verified"] = validation["is_valid"]
                 task["retryable"] = bool(task["retryable"])
             counts = {status.value: 0 for status in AllocationTaskStatus}
             for task in tasks:
@@ -1182,17 +1505,9 @@ class TaskAllocationEngine:
         task_id: str,
         *,
         actor_id: str,
-        evidence_refs: Sequence[str],
         now: datetime | None = None,
     ) -> dict[str, Any]:
         current = now or datetime.now(timezone.utc)
-        if isinstance(evidence_refs, (str, bytes)) or not isinstance(evidence_refs, Sequence):
-            raise AllocationError("Evidence references must be a list of identifiers")
-        if not evidence_refs or any(
-            not isinstance(item, str) or not _ID_PATTERN.fullmatch(item)
-            for item in evidence_refs
-        ) or len(set(evidence_refs)) != len(evidence_refs):
-            raise AllocationError("Evidence references must be unique simple identifiers")
         with self._lock, self._connection:
             task = self._task_row(task_id)
             actor = self._require_task_actor(task, actor_id)
@@ -1200,24 +1515,21 @@ class TaskAllocationEngine:
             self._require_active_plan(plan, now=current)
             if task["status"] != AllocationTaskStatus.ACTIVE.value:
                 raise AllocationError("Only active tasks can be submitted for review")
-            required = set(json.loads(task["evidence_requirements_json"]))
-            if not required <= set(evidence_refs):
-                missing = ", ".join(sorted(required - set(evidence_refs)))
-                raise AllocationError(f"Required task evidence is missing: {missing}")
+            validation = self._validate_task_evidence(task)
+            if not validation["is_valid"]:
+                raise AllocationError(
+                    "Genuine task evidence is missing or invalid: "
+                    + ", ".join(validation["errors"])
+                )
+            evidence_refs = task["evidence_json"]
+            persisted_artifact_ids = json.loads(evidence_refs)
             self._connection.execute(
-                """
-                UPDATE studio_allocation_tasks
-                SET evidence_json = ?, status = ?, updated_at = ?
-                WHERE task_id = ?
-                """,
-                (
-                    _json(sorted(evidence_refs)), AllocationTaskStatus.REVIEW.value,
-                    _timestamp(current), task_id,
-                ),
+                "UPDATE studio_allocation_tasks SET status = ?, updated_at = ? WHERE task_id = ?",
+                (AllocationTaskStatus.REVIEW.value, _timestamp(current), task_id),
             )
             self._audit(
                 plan["plan_id"], task_id, "allocation_task_submitted_for_review",
-                actor, {"evidence_refs": sorted(evidence_refs)}, current,
+                actor, {"artifact_ids": persisted_artifact_ids}, current,
             )
             report = self._refresh_observer(plan["plan_id"], now=current)
             if not report["is_clear"]:
@@ -1247,6 +1559,12 @@ class TaskAllocationEngine:
             self._require_active_plan(plan, now=current)
             if task["status"] != AllocationTaskStatus.REVIEW.value:
                 raise AllocationError("Only review tasks can be completed")
+            validation = self._validate_task_evidence(task)
+            if not validation["is_valid"]:
+                raise AllocationError(
+                    "Task cannot be completed without verified evidence artifacts: "
+                    + ", ".join(validation["errors"])
+                )
             observer_report = self._refresh_observer(plan["plan_id"], now=current)
             if not observer_report["is_clear"]:
                 raise AllocationError("Observer policy checks block task completion")
