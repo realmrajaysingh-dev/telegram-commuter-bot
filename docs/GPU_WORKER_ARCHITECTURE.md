@@ -282,3 +282,30 @@ network, model, FFmpeg, or publishing integration exists. Local file and
 SQLite consistency is checked on reads/restart, but external backup/retention,
 authenticated worker identity, and cross-process operational recovery remain
 future work.
+
+## Session 07.4 — Local synthetic lifecycle simulation
+
+The dashboard's **Run One Synthetic Job · DEMO** control invokes
+`WorkerJobQueue.run_synthetic_job` for one persisted job. It accepts only the
+fixed `success`, `failure`, or `interruption` scenarios, and only for a queued
+job with unexpired persisted Director authorization, a still-active task in an
+approved plan, verified task inputs, an explicitly demo-labeled project, and
+an available manually registered worker that passes the existing worker
+registration and capability contracts.
+
+The simulator uses the existing queue transitions for lease, start, heartbeat,
+failure, expired-lease recovery, Director retry, and result acceptance. Its
+success fixture is deterministic JSON bytes containing only job/task/project
+IDs, workload, attempt, and a fixed synthetic marker. The bytes are passed to
+the Session 07.3 controlled storage and read-back SHA-256 verifier; the
+simulator never interprets a job payload as code and calls no shell, FFmpeg,
+model, GPU, Colab, Drive, or external API. Success remains a worker-job state,
+not Studio task completion or human/Observer review. Audit history includes
+the ordinary lifecycle events plus a synthetic-scenario event.
+
+Failure produces a persisted failed job and follows the existing Director
+retry/new-authorization gates. Interruption advances to lease expiry without
+waiting, exercises recovery, returns the job to queued (or failure at the
+retry limit), and clears execution authorization. Restart uses the same
+persisted expiry and artifact checks. Synthetic workers, simulator controls,
+output records, and dashboard labels remain explicitly marked as demo.

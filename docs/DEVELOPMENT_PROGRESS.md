@@ -193,3 +193,15 @@ The dashboard now shows output verification states and offers a local synthetic 
 **Limitations:** worker/Director IDs are still unauthenticated local assertions. The UI fixture is synthetic, and there is no real worker, Colab, Drive, model, FFmpeg, external API, or publishing. Recovery detects and invalidates tampered current results; backup/retention policy and authenticated cross-process worker recovery remain future work.
 
 **Readiness:** **PASS** for local byte-verified output storage, simulated result submission, and tamper/interruption recovery. Operational worker execution remains **BLOCKED** pending authenticated worker identity, a separately authorized real worker adapter, and operational storage/backup controls.
+
+## Session 07.4 — Local Worker Lifecycle Simulation
+
+Added a manually triggered, one-job synthetic lifecycle using the existing persistent queue and worker registration contracts. The simulator requires an authorized queued job, active task and verified input evidence, an available worker that matches registered workload/capabilities, and an explicitly demo-labeled project. It only accepts the fixed `success`, `failure`, and `interruption` scenarios; arbitrary job strings are never interpreted or executed.
+
+Success runs lease/start/heartbeat, generates deterministic synthetic fixture bytes, submits them through the existing queue result boundary, and stores/reads back/verifies them through Session 07.3 integrity handling. Failure records a standard synthetic error; interruption exercises lease expiry and persisted recovery, returning to queued or failed under existing retry limits and clearing authorization. Dashboard controls expose these scenarios for one job, with synthetic/demo labels and persisted outputs/audit status. Worker success does not complete a Studio task or bypass evidence, Observer, human review, or Director completion gates.
+
+**Verification:** lifecycle regression tests cover authorization, demo-only separation, success/output verification, unsupported scenarios, failure and Director retry, interruption/restart/re-authorization, and dashboard-triggered execution. Focused worker queue/contracts: **40 passed**. Full suite: **131 tests passed**, with no failures or warnings. Python compilation, embedded dashboard JavaScript syntax, and diff checks pass.
+
+**Limitations:** The lifecycle is a local simulation only. It does not invoke a worker process or perform real CPU/GPU work; worker and Director identities remain unauthenticated local assertions. No Colab, Drive, network, production publishing, or code execution is connected.
+
+**Readiness:** **PASS** for the requested offline synthetic worker lifecycle. Real compute-worker operation remains **BLOCKED** until separately authorized and implemented with authenticated identities and operational storage controls.

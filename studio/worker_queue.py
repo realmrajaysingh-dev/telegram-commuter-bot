@@ -5,8 +5,6 @@ from __future__ import annotations
 from contextlib import contextmanager
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
-import base64
-import binascii
 import hashlib
 import hmac
 import json
@@ -545,6 +543,10 @@ class WorkerJobQueue:
     def _recover_artifact_storage(self, *, now: datetime) -> None:
         root = self._artifact_directory()
         with self._transaction():
+            all_outputs = self._connection.execute(
+                "SELECT * FROM studio_worker_verified_outputs"
+            ).fetchall()
+            known_storage_names = {row["storage_name"] for row in all_outputs}
             referenced = {
                 row["storage_name"]: row
                 for row in self._connection.execute(
@@ -576,6 +578,7 @@ class WorkerJobQueue:
                         entry.name,
                     )
                     and entry.name not in referenced
+                    and entry.name not in known_storage_names
                     and entry.is_file(follow_symlinks=False)
                 ):
                     try:
@@ -1635,6 +1638,159 @@ class WorkerJobQueue:
         if accepted_record is None:
             raise WorkerQueueError("Worker result was not accepted")
         return self._job_dict(accepted_record)
+
+    def run_synthetic_job(
+        self,
+        job_id: str,
+        *,
+        scenario: str = "success",
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
+        if scenario not in {"success", "failure", "interruption"}:
+            raise WorkerQueueError(
+                "Synthetic scenario must be success, failure, or interruption"
+            )
+        current = now or datetime.now(timezone.utc)
+        record = self.get_record(job_id)
+        if record.state is JobState.SUCCEEDED:
+            raise WorkerQueueError("A synthetic result was already accepted for this job")
+        if record.state is not JobState.QUEUED or record.authorization is None:
+            raise WorkerQueueError(
+                "Synthetic execution requires a queued job with current Director authorization"
+            )
+        plan, _ = self._validate_task(
+            record.manifest.project_id, record.manifest.task_id
+        )
+        if not plan["project"]["is_demo"]:
+            raise WorkerQueueError(
+                "Synthetic worker execution is restricted to explicitly labeled demo projects"
+            )
+        if current + timedelta(seconds=5) >= min(
+            record.authorization.expires_at,
+            record.manifest.deadline_at,
+        ):
+            raise WorkerQueueError(
+                "Synthetic worker execution window is too close to authorization or job expiry"
+            )
+        worker_rows = self._connection.execute(
+            """
+            SELECT worker_id FROM studio_worker_registrations
+            WHERE state = 'available' AND expires_at > ?
+            ORDER BY registered_at, worker_id
+            """,
+            (self._timestamp(current + timedelta(seconds=5)),),
+        ).fetchall()
+        eligible_worker = None
+        for row in worker_rows:
+            worker = self._worker(row["worker_id"])
+            if record.manifest.workload not in worker.workloads:
+                continue
+            if (
+                record.manifest.workload is WorkloadKind.GPU_INFERENCE
+                and worker.vram_mb < record.manifest.resources.min_vram_mb
+            ):
+                continue
+            if (
+                not set(record.manifest.capabilities.operations) <= set(worker.operations)
+                or not set(record.manifest.capabilities.language_tags)
+                <= set(worker.language_tags)
+                or not set(record.manifest.capabilities.model_ids) <= set(worker.model_ids)
+            ):
+                continue
+            eligible_worker = worker
+            break
+        if eligible_worker is None:
+            raise WorkerQueueError(
+                "No available manually registered simulation worker supports this job"
+            )
+
+        leased = self.lease(
+            job_id,
+            worker_id=eligible_worker.worker_id,
+            now=current,
+        )
+        started_at = current + timedelta(seconds=1)
+        running = self.start(
+            job_id, worker_id=eligible_worker.worker_id, now=started_at
+        )
+        heartbeat_at = started_at + timedelta(seconds=1)
+        heartbeat = self.heartbeat(
+            job_id,
+            worker_id=eligible_worker.worker_id,
+            lease_seconds=300,
+            now=heartbeat_at,
+        )
+        attempt = leased["lease"]["attempt"]
+
+        if scenario == "failure":
+            final_time = heartbeat_at + timedelta(seconds=1)
+            self.fail(
+                job_id,
+                worker_id=eligible_worker.worker_id,
+                error_code="synthetic_worker_failure",
+                now=final_time,
+            )
+        elif scenario == "interruption":
+            final_time = parse_datetime(heartbeat["lease"]["expires_at"]) + timedelta(
+                seconds=1
+            )
+            recovered = self.recover_expired_leases(now=final_time)
+            if not any(item["job_id"] == job_id for item in recovered):
+                raise WorkerQueueError("Synthetic interruption could not recover its expired lease")
+        else:
+            declaration = running["output_declarations"][0]
+            content = json.dumps(
+                {
+                    "fixture": "VOOCKS_SYNTHETIC_WORKER_OUTPUT",
+                    "job_id": job_id,
+                    "task_id": record.manifest.task_id,
+                    "project_id": record.manifest.project_id,
+                    "workload": record.manifest.workload.value,
+                    "attempt": attempt,
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+            self.submit_result(
+                job_id,
+                worker_id=eligible_worker.worker_id,
+                lease_id=heartbeat["lease"]["lease_id"],
+                attempt=attempt,
+                outputs=(
+                    {
+                        "artifact_id": declaration["artifact_id"],
+                        "backend": declaration["backend"],
+                        "key": declaration["key"],
+                        "sha256": hashlib.sha256(content).hexdigest(),
+                        "size_bytes": len(content),
+                        "media_type": declaration["media_type"],
+                        "content": content,
+                    },
+                ),
+                result_id=f"result-synthetic-{hashlib.sha256(f'{job_id}:{attempt}'.encode()).hexdigest()[:24]}",
+                completed_at=heartbeat_at + timedelta(seconds=2),
+                now=heartbeat_at + timedelta(seconds=2),
+            )
+            final_time = heartbeat_at + timedelta(seconds=2)
+
+        with self._transaction():
+            final_record = self._record(job_id)
+            self._append_integrity_event(
+                final_record,
+                event_type="synthetic_worker_run",
+                actor_id=eligible_worker.worker_id,
+                now=final_time,
+                details={
+                    "scenario": scenario,
+                    "attempt": attempt,
+                    "is_synthetic": True,
+                    "final_state": final_record.state.value,
+                    "result_id": (
+                        final_record.result.result_id if final_record.result else None
+                    ),
+                },
+            )
+        return self.get_job(job_id)
 
     def retry(self, job_id: str, *, director_id: str, now: datetime | None = None) -> dict[str, Any]:
         current = now or datetime.now(timezone.utc)

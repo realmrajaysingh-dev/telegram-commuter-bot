@@ -495,18 +495,32 @@ async function refreshWorkerJobs() {
     if(job.lease) card.append(el("p",`Lease ${job.lease.lease_id} · ${job.lease.worker_id} · expires ${job.lease.expires_at}`,"muted"));
     if(job.last_error) card.append(el("p",`Failure: ${job.last_error}`,"notice"));
     card.append(el("p",`Output verification: ${job.output_verification.replaceAll("_"," ")}`,"notice"));
-    if(job.outputs.length) card.append(el("p",`Stored outputs: ${job.outputs.map(item=>`${item.artifact_id} (${item.verification_status}${item.is_synthetic?" · synthetic":""})`).join(", ")}`,"notice"));
+    if(job.outputs.length) card.append(el("p",`Stored outputs: ${job.outputs.map(item=>`${item.artifact_id} (${item.verification_status}${item.is_synthetic?" · DEMO":""}) · ${item.size_bytes} bytes · SHA-256 ${item.sha256}`).join(" | ")}`,"notice"));
     const latestChecks=new Map();
     for(const check of job.output_checks) latestChecks.set(check.artifact_id,check);
     for(const [artifactId,check] of latestChecks) if(check.status==="failed")
       card.append(el("p",`Output ${artifactId} failed verification: ${check.error_code||"verification_failed"}`,"notice"));
+    const auditDetails=document.createElement("details");
+    auditDetails.append(el("summary","Worker Audit History · DEMO"));
+    auditDetails.append(el("pre",JSON.stringify(job.audit_events,null,2)));
+    card.append(auditDetails);
     if(job.state==="queued"&&!job.authorization) {
       const authorize=el("button","Director Authorize Execution"); authorize.type="button";
       authorize.addEventListener("click",()=>authorizeWorkerJob(job,authorize)); card.append(authorize);
     } else if(job.state==="queued"&&job.authorization) {
-      const candidates=snapshot.workers.filter(worker=>worker.state==="available"&&worker.workloads.includes(job.workload));
+      const candidates=snapshot.workers.filter(worker=>
+        worker.state==="available"&&worker.workloads.includes(job.workload)&&
+        (job.workload!=="gpu_inference"||worker.vram_mb>=job.resource_requirements.min_vram_mb)
+      );
       const worker=el("select");
       for(const candidate of candidates) worker.append(new Option(`${candidate.worker_id} · ${candidate.vram_mb} MiB VRAM`,candidate.worker_id));
+      const scenario=el("select");
+      scenario.append(new Option("Synthetic success · DEMO","success"));
+      scenario.append(new Option("Synthetic failure · DEMO","failure"));
+      scenario.append(new Option("Lease interruption / recovery · DEMO","interruption"));
+      const simulate=el("button","Run One Synthetic Job · DEMO"); simulate.type="button";
+      simulate.disabled=!candidates.length||!job.project_is_demo;
+      simulate.addEventListener("click",()=>runSyntheticWorkerJob(job,scenario.value,simulate));
       const renew=el("button","Renew Director Authorization"); renew.type="button";
       renew.addEventListener("click",()=>authorizeWorkerJob(job,renew));
       const lease=el("button","Lease · manual simulation"); lease.type="button";
@@ -514,7 +528,7 @@ async function refreshWorkerJobs() {
       lease.addEventListener("click",()=>leaseWorkerJob(job,worker.value,lease));
       const cancel=el("button","Director Cancel"); cancel.type="button";
       cancel.addEventListener("click",()=>directorWorkerAction(job,"cancel",cancel));
-      card.append(worker,renew,lease,cancel);
+      card.append(worker,scenario,simulate,renew,lease,cancel);
     } else if(job.state==="leased") {
       const start=el("button","Mark Running · simulation only"); start.type="button";
       start.addEventListener("click",()=>workerJobAction(job,"start",{worker_id:job.lease.worker_id},start));
@@ -564,6 +578,13 @@ async function authorizeWorkerJob(job,button) {
 }
 async function leaseWorkerJob(job,worker_id,button) {
   await workerJobAction(job,"lease",{worker_id,lease_seconds:300},button);
+}
+async function runSyntheticWorkerJob(job,scenario,button) {
+  await workerMutation(
+    `/api/worker-jobs/${encodeURIComponent(job.job_id)}/simulate`,
+    {scenario},
+    button
+  );
 }
 async function directorWorkerAction(job,action,button) {
   const director_id=await requestDirector(); if(!director_id) return;
@@ -1000,7 +1021,7 @@ def create_dashboard_server(
                 )
                 or re.fullmatch(
                     r"/api/worker-jobs/[A-Za-z0-9][A-Za-z0-9._-]{0,63}/"
-                    r"(authorize|lease|start|heartbeat|fail|result|retry|cancel)",
+                    r"(authorize|lease|start|heartbeat|fail|result|retry|cancel|simulate)",
                     path,
                 )
             ):
@@ -1240,7 +1261,7 @@ def create_dashboard_server(
                     )
                     action_match = re.fullmatch(
                         r"/api/worker-jobs/([A-Za-z0-9][A-Za-z0-9._-]{0,63})/"
-                        r"(authorize|lease|start|heartbeat|fail|result|retry|cancel)",
+                        r"(authorize|lease|start|heartbeat|fail|result|retry|cancel|simulate)",
                         path,
                     )
                     if state_match:
@@ -1277,6 +1298,14 @@ def create_dashboard_server(
                                 result = worker_queue.cancel(
                                     job_id, director_id=payload["director_id"]
                                 )
+                        elif operation == "simulate":
+                            if set(payload) != {"scenario"}:
+                                raise WorkerQueueError(
+                                    "Synthetic simulation accepts only a declared scenario"
+                                )
+                            result = worker_queue.run_synthetic_job(
+                                job_id, scenario=payload["scenario"]
+                            )
                         elif operation == "lease":
                             if set(payload) - {"worker_id", "lease_seconds"} or "worker_id" not in payload:
                                 raise WorkerQueueError("Worker ID and optional lease duration are required")

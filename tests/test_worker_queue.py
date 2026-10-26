@@ -546,6 +546,113 @@ class WorkerJobQueueTests(unittest.TestCase):
         self.assertEqual(rejected["output_verification"], "failed")
         self.assertEqual(external_path.read_bytes(), b"external file must remain untouched")
 
+    def test_synthetic_worker_requires_authorization_and_runs_one_verified_job(self) -> None:
+        job = self.enqueue()
+        with self.assertRaisesRegex(WorkerQueueError, "Director authorization"):
+            self.queue.run_synthetic_job(job["job_id"], now=NOW)
+        self.assertEqual(self.queue.get_job(job["job_id"])["state"], "queued")
+        with self.assertRaisesRegex(WorkerQueueError, "scenario"):
+            self.queue.run_synthetic_job(
+                job["job_id"], scenario="execute-payload", now=NOW
+            )
+        self.authorize(job)
+        with self.assertRaisesRegex(WorkerQueueError, "No available"):
+            self.queue.run_synthetic_job(job["job_id"], now=NOW)
+        self.register_worker()
+        completed = self.queue.run_synthetic_job(job["job_id"], now=NOW)
+        self.assertEqual(completed["state"], "succeeded")
+        self.assertEqual(completed["output_verification"], "verified")
+        self.assertTrue(completed["outputs"][0]["is_synthetic"])
+        self.assertEqual(completed["audit_events"][-1]["event_type"], "synthetic_worker_run")
+        self.assertIn('"scenario":"success"', completed["audit_events"][-1]["details_json"])
+        plan = self.allocation.get_plan_for_project(self.project["project_id"])
+        task = next(item for item in plan["tasks"] if item["task_id"] == self.task["task_id"])
+        self.assertEqual(task["status"], "active")
+        with self.assertRaisesRegex(WorkerQueueError, "already accepted"):
+            self.queue.run_synthetic_job(job["job_id"], now=NOW + timedelta(seconds=10))
+
+    def test_synthetic_failure_and_director_retry_are_persisted(self) -> None:
+        job = self.enqueue()
+        self.authorize(job)
+        self.register_worker()
+        failed = self.queue.run_synthetic_job(
+            job["job_id"], scenario="failure", now=NOW
+        )
+        self.assertEqual(failed["state"], "failed")
+        self.assertEqual(failed["last_error"], "synthetic_worker_failure")
+        self.assertEqual(failed["output_verification"], "awaiting_verification")
+        self.assertEqual(failed["audit_events"][-1]["event_type"], "synthetic_worker_run")
+        retry_at = NOW + timedelta(seconds=5)
+        retried = self.queue.retry(
+            job["job_id"], director_id=DIRECTOR_ID, now=retry_at
+        )
+        self.assertEqual(retried["state"], "queued")
+        self.assertIsNone(retried["authorization"])
+        reauthorized = self.queue.authorize(
+            job["job_id"], director_id=DIRECTOR_ID,
+            now=retry_at + timedelta(seconds=1),
+        )
+        self.assertIsNotNone(reauthorized["authorization"])
+        completed = self.queue.run_synthetic_job(
+            job["job_id"], now=retry_at + timedelta(seconds=2)
+        )
+        self.assertEqual(completed["state"], "succeeded")
+        self.assertEqual(completed["attempt_count"], 2)
+        self.assertEqual(completed["output_verification"], "verified")
+        self.assertTrue(self.queue.verify_audit_chain(job["job_id"]))
+
+    def test_synthetic_worker_cannot_run_against_non_demo_project(self) -> None:
+        job = self.enqueue()
+        self.authorize(job)
+        self.register_worker()
+        self.pipeline._connection.execute(
+            "UPDATE studio_projects SET is_demo=0 WHERE project_id=?",
+            (self.project["project_id"],),
+        )
+        self.pipeline._connection.commit()
+        try:
+            with self.assertRaisesRegex(WorkerQueueError, "demo projects"):
+                self.queue.run_synthetic_job(job["job_id"], now=NOW)
+            self.assertEqual(self.queue.get_job(job["job_id"])["state"], "queued")
+        finally:
+            self.pipeline._connection.execute(
+                "UPDATE studio_projects SET is_demo=1 WHERE project_id=?",
+                (self.project["project_id"],),
+            )
+            self.pipeline._connection.commit()
+
+    def test_synthetic_interruption_recovers_after_expiry_and_restart(self) -> None:
+        job = self.enqueue()
+        self.authorize(job)
+        self.register_worker()
+        interrupted = self.queue.run_synthetic_job(
+            job["job_id"], scenario="interruption", now=NOW
+        )
+        self.assertEqual(interrupted["state"], "queued")
+        self.assertEqual(interrupted["attempt_count"], 1)
+        self.assertIsNone(interrupted["authorization"])
+        self.assertIsNone(interrupted["lease"])
+        event_types = [event["event_type"] for event in interrupted["audit_events"]]
+        self.assertIn("job_interrupted", event_types)
+        self.assertIn("job_requeued", event_types)
+        self.assertEqual(event_types[-1], "synthetic_worker_run")
+        self.queue.close()
+        self.queue = WorkerJobQueue(self.allocation, {DIRECTOR_ID})
+        recovered = self.queue.get_job(job["job_id"])
+        self.assertEqual(recovered["state"], "queued")
+        self.assertIsNone(recovered["authorization"])
+        next_run = datetime.fromisoformat(recovered["updated_at"]) + timedelta(seconds=1)
+        self.queue.authorize(
+            job["job_id"], director_id=DIRECTOR_ID, now=next_run
+        )
+        completed = self.queue.run_synthetic_job(
+            job["job_id"], now=next_run + timedelta(seconds=1)
+        )
+        self.assertEqual(completed["state"], "succeeded")
+        self.assertEqual(completed["attempt_count"], 2)
+        self.assertEqual(completed["output_verification"], "verified")
+        self.assertTrue(self.queue.verify_audit_chain(job["job_id"]))
+
     def test_cpu_and_gpu_synthetic_outputs_are_persisted_and_verified(self) -> None:
         self.register_worker()
         for index, workload in enumerate(("cpu_ffmpeg", "gpu_inference")):
@@ -599,12 +706,13 @@ class WorkerJobQueueTests(unittest.TestCase):
                 page = response.read().decode("utf-8")
             self.assertIn("Persistent Worker Queue", page)
             self.assertIn("Submit Synthetic Output Fixture", page)
+            self.assertIn("Run One Synthetic Job", page)
             self.assertIn("Output verification", page)
             worker_payload = json.dumps(
                 {
                     "director_id": DIRECTOR_ID,
                     "worker_id": "dashboard-worker",
-                    "workloads": ["gpu_inference"],
+                    "workloads": ["gpu_inference", "cpu_ffmpeg"],
                     "state": "available",
                     "vram_mb": 12000,
                     "operations": [],
@@ -714,11 +822,38 @@ class WorkerJobQueueTests(unittest.TestCase):
                 verified_job = json.loads(response.read())
             self.assertEqual(verified_job["state"], "succeeded")
             self.assertEqual(verified_job["output_verification"], "verified")
+            cpu_queue_payload = json.dumps(
+                {
+                    "director_id": DIRECTOR_ID,
+                    "workload": "cpu_ffmpeg",
+                }
+            ).encode()
+            request = Request(
+                f"{base}/api/worker-jobs/queue/{self.task['task_id']}",
+                data=cpu_queue_payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urlopen(request) as response:
+                cpu_job = json.loads(response.read())
+            cpu_path = f"/api/worker-jobs/{cpu_job['job_id']}"
+            post(cpu_path + "/authorize", {"director_id": DIRECTOR_ID})
+            with self.assertRaises(HTTPError) as error:
+                post(cpu_path + "/simulate", {"scenario": "arbitrary-payload"})
+            self.assertEqual(error.exception.code, 400)
+            error.exception.close()
+            simulated = post(cpu_path + "/simulate", {"scenario": "success"})
+            self.assertEqual(simulated["state"], "succeeded")
+            self.assertEqual(simulated["output_verification"], "verified")
+            self.assertEqual(simulated["audit_events"][-1]["event_type"], "synthetic_worker_run")
+            self.assertTrue(simulated["outputs"][0]["is_synthetic"])
 
             with urlopen(f"{base}/api/worker-jobs") as response:
                 snapshot = json.loads(response.read())
-            self.assertEqual(snapshot["counts"]["succeeded"], 1)
-            self.assertEqual(snapshot["jobs"][0]["job_id"], queued["job_id"])
+            self.assertEqual(snapshot["counts"]["succeeded"], 2)
+            self.assertIn(
+                queued["job_id"], [job["job_id"] for job in snapshot["jobs"]]
+            )
             self.assertEqual(snapshot["workers"][0]["worker_id"], "dashboard-worker")
             with self.assertRaises(HTTPError) as error:
                 request = Request(
