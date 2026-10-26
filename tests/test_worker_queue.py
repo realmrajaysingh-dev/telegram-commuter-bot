@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import base64
+import copy
+import contextlib
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
@@ -23,6 +25,17 @@ from studio.worker_queue import WorkerJobQueue, WorkerQueueError
 from studio.worker_connector import (
     match_job_to_worker,
     offline_colab_t4_profile,
+)
+from studio.worker_handoff import (
+    WorkerHandoffError,
+    create_result_package,
+    decode_package,
+    encode_package,
+    export_job_package,
+    import_result_package,
+    read_package_file,
+    validate_job_package,
+    write_package_file,
 )
 
 
@@ -207,6 +220,7 @@ class WorkerJobQueueTests(unittest.TestCase):
 
         mock_profile = snapshot["offline_colab_t4_profile"]
         self.assertEqual(mock_profile["availability"], "offline_mock")
+        self.assertEqual(mock_profile["provider_id"], "google_colab_mock")
         self.assertTrue(mock_profile["is_synthetic"])
         self.assertIn("not registered", mock_profile["notice"])
         match = match_job_to_worker(
@@ -273,6 +287,222 @@ class WorkerJobQueueTests(unittest.TestCase):
             self.queue.lease(
                 job["job_id"], worker_id="simulated-worker", now=NOW
             )
+
+    def test_handoff_export_requires_authorized_director_and_live_worker(self) -> None:
+        job = self.enqueue()
+        self.register_worker()
+        with self.assertRaisesRegex(WorkerHandoffError, "authorized queued"):
+            export_job_package(
+                self.queue, job["job_id"], worker_id="simulated-worker",
+                director_id=DIRECTOR_ID, now=NOW,
+            )
+        self.authorize(job)
+        with self.assertRaisesRegex(WorkerHandoffError, "Only the Director"):
+            export_job_package(
+                self.queue, job["job_id"], worker_id="simulated-worker",
+                director_id="other-director", now=NOW,
+            )
+        package = export_job_package(
+            self.queue, job["job_id"], worker_id="simulated-worker",
+            director_id=DIRECTOR_ID, now=NOW,
+        )
+        self.assertEqual(package["package_type"], "voocks.worker.job")
+        self.assertEqual(package["manifest"]["task_id"], self.task["task_id"])
+        self.assertTrue(validate_job_package(package, now=NOW)["profile"].is_synthetic)
+        alternative = copy.deepcopy(package)
+        alternative["worker_profile"]["provider_id"] = "alternative-worker-v1"
+        self.assertEqual(
+            validate_job_package(alternative, now=NOW)["profile"].provider_id,
+            "alternative-worker-v1",
+        )
+        self.assertEqual(self.queue.get_job(job["job_id"])["state"], "running")
+        invalid_id = copy.deepcopy(package)
+        invalid_id["manifest"]["task_id"] = "../wrong-task"
+        with self.assertRaisesRegex(WorkerHandoffError, "manifest is invalid"):
+            validate_job_package(invalid_id, now=NOW)
+        extra_manifest_field = copy.deepcopy(package)
+        extra_manifest_field["manifest"]["unexpected"] = "not allowed"
+        with self.assertRaisesRegex(WorkerHandoffError, "non-canonical"):
+            validate_job_package(extra_manifest_field, now=NOW)
+        incompatible_profile = copy.deepcopy(package)
+        incompatible_profile["worker_profile"]["vram_mb"] = 0
+        with self.assertRaisesRegex(WorkerHandoffError, "capability profile"):
+            validate_job_package(incompatible_profile, now=NOW)
+        notebook = json.loads(
+            (ROOT / "notebooks" / "worker_handoff_offline.ipynb").read_text()
+        )
+        validator_source = "".join(notebook["cells"][1]["source"])
+        with tempfile.TemporaryDirectory() as directory:
+            package_path = Path(directory) / "job_package.json"
+            package_path.write_text(json.dumps(package), encoding="utf-8")
+            with contextlib.chdir(directory):
+                exec(
+                    compile(validator_source, "<offline-notebook-validator>", "exec"),
+                    {},
+                )
+
+    def test_handoff_result_integrity_replay_and_file_roundtrip(self) -> None:
+        with self.assertRaisesRegex(WorkerHandoffError, "Duplicate JSON field"):
+            decode_package(b'{"job_id":"first","job_id":"second"}')
+        job = self.enqueue()
+        self.register_worker()
+        self.authorize(job)
+        package = export_job_package(
+            self.queue, job["job_id"], worker_id="simulated-worker",
+            director_id=DIRECTOR_ID, now=NOW,
+        )
+        with self.assertRaisesRegex(WorkerHandoffError, "checksum"):
+            validate_job_package({**package, "manifest_sha256": "0" * 64}, now=NOW)
+
+        output_content = b"Offline handoff verified output fixture."
+        result = create_result_package(
+            package,
+            ({"artifact_id": package["manifest"]["output_artifacts"][0]["artifact_id"],
+              "content": output_content},),
+            now=NOW + timedelta(seconds=1),
+            completed_at=NOW + timedelta(seconds=1),
+        )
+        serialized = encode_package(result)
+        self.assertEqual(decode_package(serialized), result)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "worker-result.json"
+            self.assertEqual(write_package_file(path, result), path)
+            self.assertEqual(read_package_file(path), result)
+            with self.assertRaisesRegex(WorkerHandoffError, "already exists"):
+                write_package_file(path, result)
+            symlink = Path(directory) / "worker-result-link.json"
+            symlink.symlink_to(path)
+            with self.assertRaisesRegex(WorkerHandoffError, "safely"):
+                read_package_file(symlink)
+
+        self.queue.close()
+        self.queue = WorkerJobQueue(
+            self.allocation, {DIRECTOR_ID}, now=NOW + timedelta(seconds=2)
+        )
+        for mutation in (
+            lambda item: item["outputs"][0].update(sha256="0" * 64),
+            lambda item: item.update(worker_id="other-worker"),
+            lambda item: item.update(task_id="other-task"),
+        ):
+            invalid = copy.deepcopy(result)
+            mutation(invalid)
+            with self.assertRaises(WorkerHandoffError):
+                import_result_package(self.queue, invalid, now=NOW + timedelta(seconds=2))
+        imported = import_result_package(
+            self.queue, result, now=NOW + timedelta(seconds=2)
+        )
+        self.assertEqual(imported["state"], "succeeded")
+        self.assertEqual(imported["output_verification"], "verified")
+        self.assertTrue(imported["outputs"][0]["is_synthetic"])
+        self.assertTrue(self.queue.verify_audit_chain(job["job_id"]))
+        with self.assertRaisesRegex(WorkerHandoffError, "active authorized running job"):
+            import_result_package(self.queue, result, now=NOW + timedelta(seconds=3))
+
+    def test_stale_handoff_result_recovers_lease_and_interruption_is_retryable(self) -> None:
+        job = self.enqueue()
+        self.register_worker()
+        self.authorize(job)
+        package = export_job_package(
+            self.queue, job["job_id"], worker_id="simulated-worker",
+            director_id=DIRECTOR_ID, now=NOW,
+        )
+        output_id = package["manifest"]["output_artifacts"][0]["artifact_id"]
+        stale_result = create_result_package(
+            package, ({"artifact_id": output_id, "content": b"late bytes"},),
+            now=NOW + timedelta(seconds=1),
+            completed_at=NOW + timedelta(seconds=1),
+        )
+        with self.assertRaisesRegex(WorkerHandoffError, "active authorized running job"):
+            import_result_package(
+                self.queue, stale_result, now=NOW + timedelta(seconds=301)
+            )
+        recovered = self.queue.get_job(job["job_id"])
+        self.assertEqual(recovered["state"], "queued")
+        self.assertIsNone(recovered["authorization"])
+        self.assertTrue(self.queue.verify_audit_chain(job["job_id"]))
+
+        self.queue.authorize(
+            job["job_id"], director_id=DIRECTOR_ID,
+            now=NOW + timedelta(seconds=302),
+        )
+        second_package = export_job_package(
+            self.queue, job["job_id"], worker_id="simulated-worker",
+            director_id=DIRECTOR_ID, now=NOW + timedelta(seconds=303),
+        )
+        interrupted = create_result_package(
+            second_package,
+            status="interrupted",
+            error_code="WORKER_INTERRUPTED",
+            now=NOW + timedelta(seconds=304),
+            completed_at=NOW + timedelta(seconds=304),
+        )
+        failed = import_result_package(
+            self.queue, interrupted, now=NOW + timedelta(seconds=304)
+        )
+        self.assertEqual(failed["state"], "failed")
+        self.assertEqual(failed["last_error"], "WORKER_INTERRUPTED")
+        retried = self.queue.retry(
+            job["job_id"], director_id=DIRECTOR_ID,
+            now=NOW + timedelta(seconds=305),
+        )
+        self.assertEqual(retried["state"], "queued")
+
+    def test_dashboard_exports_and_imports_manual_handoff_packages(self) -> None:
+        job = self.enqueue()
+        self.register_worker()
+        self.authorize(job)
+        server = create_dashboard_server(
+            self.issues, host="127.0.0.1", port=0,
+            pipeline=self.pipeline, allocation=self.allocation,
+        )
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        base = f"http://127.0.0.1:{server.server_port}"
+        try:
+            with urlopen(f"{base}/") as response:
+                page = response.read().decode("utf-8")
+            self.assertIn("Export Manual Worker Package", page)
+            self.assertIn("Import Worker Result Package", page)
+
+            def post(path: str, payload: dict):
+                request = Request(
+                    f"{base}{path}",
+                    data=json.dumps(payload).encode(),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urlopen(request) as response:
+                    return json.loads(response.read())
+
+            exported = post(
+                f"/api/worker-jobs/{job['job_id']}/export",
+                {"director_id": DIRECTOR_ID, "worker_id": "simulated-worker"},
+            )
+            declaration = exported["manifest"]["output_artifacts"][0]
+            handoff_now = datetime.fromisoformat(exported["exported_at"])
+            result = create_result_package(
+                exported,
+                ({"artifact_id": declaration["artifact_id"],
+                  "content": b"Dashboard handoff fixture"},),
+                now=handoff_now,
+                completed_at=handoff_now,
+            )
+            imported = post(
+                f"/api/worker-jobs/{job['job_id']}/import-result",
+                result,
+            )
+            self.assertEqual(imported["state"], "succeeded")
+            self.assertTrue(imported["outputs"][0]["is_synthetic"])
+            with self.assertRaises(HTTPError) as response_error:
+                post(
+                    f"/api/worker-jobs/{job['job_id']}/import-result",
+                    {**result, "job_id": "another-job"},
+                )
+            response_error.exception.close()
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
 
     def test_authorization_and_manual_worker_lease_are_gated(self) -> None:
         job = self.enqueue()

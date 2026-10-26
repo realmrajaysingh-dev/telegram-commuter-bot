@@ -2171,6 +2171,7 @@ class WorkerJobQueue:
                 "accelerators": [item.value for item in mock_colab.accelerators],
                 "vram_mb": mock_colab.vram_mb,
                 "processing_types": list(mock_colab.processing_types),
+                "provider_id": mock_colab.provider_id,
                 "notice": "Compatibility fixture only; not registered, online, or leaseable.",
             }
             for job in jobs:

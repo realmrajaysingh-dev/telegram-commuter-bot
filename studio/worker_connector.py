@@ -37,6 +37,7 @@ class WorkerCapabilityProfile:
     model_ids: tuple[str, ...]
     expires_at: datetime
     is_synthetic: bool = True
+    provider_id: str = "manual"
 
 
 @dataclass(frozen=True)
@@ -108,6 +109,7 @@ def profile_from_registration(
         language_tags=registration.language_tags,
         model_ids=registration.model_ids,
         expires_at=registration.expires_at,
+        provider_id="local_simulation",
     )
 
 
@@ -128,6 +130,7 @@ def offline_colab_t4_profile(*, expires_at: datetime) -> WorkerCapabilityProfile
         model_ids=("offline-mock-model-v1",),
         expires_at=expires_at,
         is_synthetic=True,
+        provider_id="google_colab_mock",
     )
 
 

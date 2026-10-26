@@ -21,6 +21,12 @@ from .pipeline import ProjectError, ProjectNotFound, ProjectPipeline
 from .registry import RoleRegistry
 from .worker_queue import WorkerJobQueue, WorkerQueueError
 from .worker_contracts import WorkloadKind
+from .worker_handoff import (
+    MAX_PACKAGE_BYTES,
+    WorkerHandoffError,
+    export_job_package,
+    import_result_package,
+)
 
 
 _ISSUE_ID_PATTERN = re.compile(r"^[a-f0-9]{32}$")
@@ -28,6 +34,7 @@ _MAX_REQUEST_BYTES = 8_192
 _MAX_EVIDENCE_REQUEST_BYTES = MAX_EVIDENCE_BYTES * 4 + 4_096
 _MAX_WORKER_OUTPUT_BYTES = 1 * 1024**2
 _MAX_WORKER_RESULT_REQUEST_BYTES = _MAX_WORKER_OUTPUT_BYTES * 4 // 3 + 16_384
+_MAX_WORKER_HANDOFF_REQUEST_BYTES = MAX_PACKAGE_BYTES
 
 
 class _DashboardHTTPServer(ThreadingHTTPServer):
@@ -170,7 +177,7 @@ _DASHBOARD_HTML = """<!doctype html>
     <br>
     <section class="panel" aria-label="Persistent worker queue">
       <h2>Persistent Worker Queue <span class="demo">Manual local simulation</span></h2>
-      <p class="notice">No Colab, Drive, networking, or workload execution is connected. Successful worker results remain unverified metadata only; they are never files or Studio evidence automatically.</p>
+      <p class="notice">No Colab, Drive, networking, or workload execution is connected. Manual JSON handoff packages use the current Director authorization and SQLite lease; imported output bytes are rechecked in controlled storage and remain separate from Studio task evidence.</p>
       <div id="worker-counts" class="project-counts"></div>
       <button id="recover-worker-jobs" type="button">Recover expired leases</button>
       <div class="worker-grid">
@@ -535,9 +542,12 @@ async function refreshWorkerJobs() {
       const lease=el("button","Lease · manual simulation"); lease.type="button";
       lease.disabled=!candidates.length;
       lease.addEventListener("click",()=>leaseWorkerJob(job,worker.value,lease));
+      const exportPackage=el("button","Export Manual Worker Package");
+      exportPackage.type="button"; exportPackage.disabled=!candidates.length;
+      exportPackage.addEventListener("click",()=>exportWorkerJobPackage(job,worker.value,exportPackage));
       const cancel=el("button","Director Cancel"); cancel.type="button";
       cancel.addEventListener("click",()=>directorWorkerAction(job,"cancel",cancel));
-      card.append(worker,scenario,simulate,renew,lease,cancel);
+      card.append(worker,scenario,simulate,renew,lease,exportPackage,cancel);
     } else if(job.state==="leased") {
       const start=el("button","Mark Running · simulation only"); start.type="button";
       start.addEventListener("click",()=>workerJobAction(job,"start",{worker_id:job.lease.worker_id},start));
@@ -549,7 +559,13 @@ async function refreshWorkerJobs() {
       fail.addEventListener("click",()=>reportWorkerFailure(job,fail));
       const submitOutput=el("button","Submit Synthetic Output Fixture"); submitOutput.type="button";
       submitOutput.addEventListener("click",()=>submitSyntheticWorkerOutput(job,submitOutput));
-      card.append(heartbeat,fail,submitOutput);
+      const packageFile=el("input");
+      packageFile.type="file"; packageFile.accept=".json,application/json";
+      packageFile.setAttribute("aria-label","Select offline worker result package");
+      const importPackage=el("button","Import Worker Result Package");
+      importPackage.type="button";
+      importPackage.addEventListener("click",()=>importWorkerResultPackage(job,packageFile,importPackage));
+      card.append(heartbeat,fail,submitOutput,packageFile,importPackage);
     } else if(job.state==="failed"&&job.attempt_count<job.max_attempts) {
       const retry=el("button","Director Retry"); retry.type="button";
       retry.addEventListener("click",()=>directorWorkerAction(job,"retry",retry));
@@ -565,6 +581,36 @@ async function refreshWorkerJobs() {
 }
 async function workerJobAction(job,action,payload,button) {
   await workerMutation(`/api/worker-jobs/${encodeURIComponent(job.job_id)}/${action}`,payload,button);
+}
+async function exportWorkerJobPackage(job,worker_id,button) {
+  const director_id=await requestDirector(); if(!director_id) return;
+  button.disabled=true;
+  try {
+    const packageData=await api(`/api/worker-jobs/${encodeURIComponent(job.job_id)}/export`,{
+      method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({director_id,worker_id})
+    });
+    const blob=new Blob([JSON.stringify(packageData,null,2)],{type:"application/json"});
+    const link=document.createElement("a"); link.href=URL.createObjectURL(blob);
+    link.download=`${job.job_id}-worker-job.json`; link.click();
+    URL.revokeObjectURL(link.href);
+    await refreshWorkerJobs();
+  } catch(error) {
+    alert(`Worker package export failed: ${error.message}`);
+    button.disabled=false;
+  }
+}
+async function importWorkerResultPackage(job,fileInput,button) {
+  const file=fileInput.files?.[0];
+  if(!file) { alert("Select a worker result package JSON file."); return; }
+  if(file.size>16*1024*1024) { alert("Worker result package exceeds the 16 MiB local limit."); return; }
+  try {
+    const packageData=JSON.parse(await file.text());
+    await workerMutation(
+      `/api/worker-jobs/${encodeURIComponent(job.job_id)}/import-result`,
+      packageData,button
+    );
+  } catch(error) { alert(`Worker result package import failed: ${error.message}`); }
 }
 async function workerMutation(url,payload,button) {
   button.disabled=true;
@@ -1033,7 +1079,7 @@ def create_dashboard_server(
                 )
                 or re.fullmatch(
                     r"/api/worker-jobs/[A-Za-z0-9][A-Za-z0-9._-]{0,63}/"
-                    r"(authorize|lease|start|heartbeat|fail|result|retry|cancel|simulate)",
+                    r"(authorize|lease|start|heartbeat|fail|result|retry|cancel|simulate|export|import-result)",
                     path,
                 )
             ):
@@ -1231,7 +1277,9 @@ def create_dashboard_server(
             try:
                 payload = self._read_payload(
                     max_bytes=(
-                        _MAX_WORKER_RESULT_REQUEST_BYTES
+                        _MAX_WORKER_HANDOFF_REQUEST_BYTES
+                        if path.endswith("/import-result")
+                        else _MAX_WORKER_RESULT_REQUEST_BYTES
                         if path.endswith("/result")
                         else _MAX_REQUEST_BYTES
                     )
@@ -1287,7 +1335,7 @@ def create_dashboard_server(
                     )
                     action_match = re.fullmatch(
                         r"/api/worker-jobs/([A-Za-z0-9][A-Za-z0-9._-]{0,63})/"
-                        r"(authorize|lease|start|heartbeat|fail|result|retry|cancel|simulate)",
+                        r"(authorize|lease|start|heartbeat|fail|result|retry|cancel|simulate|export|import-result)",
                         path,
                     )
                     if state_match:
@@ -1309,7 +1357,24 @@ def create_dashboard_server(
                         )
                     elif action_match:
                         job_id, operation = action_match.groups()
-                        if operation in {"authorize", "retry", "cancel"}:
+                        if operation == "export":
+                            if set(payload) != {"director_id", "worker_id"}:
+                                raise WorkerQueueError(
+                                    "Director and worker IDs are required for package export"
+                                )
+                            result = export_job_package(
+                                worker_queue,
+                                job_id,
+                                director_id=payload["director_id"],
+                                worker_id=payload["worker_id"],
+                            )
+                        elif operation == "import-result":
+                            if payload.get("job_id") != job_id:
+                                raise WorkerQueueError(
+                                    "Result package job ID does not match the request path"
+                                )
+                            result = import_result_package(worker_queue, payload)
+                        elif operation in {"authorize", "retry", "cancel"}:
                             if set(payload) != {"director_id"}:
                                 raise WorkerQueueError("Only Director ID is accepted")
                             if operation == "authorize":
@@ -1430,6 +1495,8 @@ def create_dashboard_server(
                         return
                 self._send_json(200 if path != "/api/workers" else 201, result)
             except WorkerQueueError as exc:
+                self._send_json(400, {"error": str(exc)})
+            except WorkerHandoffError as exc:
                 self._send_json(400, {"error": str(exc)})
             except ProjectError as exc:
                 self._send_json(400, {"error": str(exc)})

@@ -372,9 +372,68 @@ worker non-leasability, additive legacy-registration migration without
 inventing capacity, persisted worker profile data, and dashboard matching
 visibility. No warning or test failure was reported.
 
+## Session 07.6 — Offline package handoff preparation
+
+`studio/worker_handoff.py` defines schema-version-1 portable JSON job and
+result packages, bounded file read/write helpers, and worker-side validators.
+Job exports can be created only for an already Director-authorized queued job,
+by that authorizing Director, and for a compatible, manually registered
+available worker. Export creates the existing queue lease and running
+transition; the package binds the complete versioned manifest digest,
+project/task/job IDs, Director authorization, lease ID/attempt/expiry, worker
+identity, and the declared provider/capability profile. Packages carry
+checksummed artifact references and declarations, not arbitrary paths, URLs,
+credentials, or task evidence bytes.
+
+The local dashboard adds an explicit export/download action and a bounded
+result-package file import action. Imported packages are validated for exact
+schema fields, identifiers, manifest digest, authorization and lease identity,
+attempt, declared artifacts, strict base64 bytes, exact sizes, and SHA-256.
+Import first runs the existing expired-lease recovery; current SQLite state
+must still show the same authorized running job, worker, and lease before
+result acceptance. Successful bytes pass through the existing private
+artifact store and read-back verifier. Duplicate, stale, replayed,
+unauthorized, mismatched, or malformed results are rejected. A failure or
+interruption result records a queue failure; only the existing Director retry
+action can authorize another attempt.
+
+The handoff currently accepts only explicitly synthetic, manually registered
+workers. The `.ipynb` scaffold under `notebooks/` uses the standard library
+only to inspect and validate an exported package, package already staged
+fixture bytes, or report an interruption. It executes no job code and invokes no hardware, model,
+rendering, network, Colab, or Drive API. Its T4 entry is profile metadata,
+not evidence that a T4 exists or is authenticated. `provider_id` metadata
+allows future adapters to identify local, Colab-mock, or other provider
+profiles without changing the current queue semantics.
+
+Inputs are not embedded in handoff packages: local evidence paths and storage
+are not transferable to Colab, and Session 07.6 adds no shared artifact
+transfer mechanism. Packages are capped at 16 MiB and output bytes at 8 MiB
+for this manual JSON flow. This cap is intentionally conservative; larger
+media needs a separately reviewed, authenticated, bounded storage adapter.
+Imported bytes can be cryptographically verified as persisted bytes, but
+their source and compute environment are not authenticated. All this
+milestone's accepted worker output remains labeled synthetic; output
+verification does not mean real GPU execution, task completion, or Director
+acceptance.
+
+**Future manual procedure:** Director approves/authorizes and exports one job
+from the local dashboard; the operator transfers the JSON file manually to
+the offline notebook environment; the notebook validates it and packages
+only explicitly staged fixture bytes; the operator transfers the result JSON
+back and imports it through the dashboard. Lease expiry and the existing
+recovery flow are the safe fallback if transfer or processing is interrupted.
+No Colab session or external account is launched by this procedure.
+
 Failure produces a persisted failed job and follows the existing Director
 retry/new-authorization gates. Interruption advances to lease expiry without
 waiting, exercises recovery, returns the job to queued (or failure at the
 retry limit), and clears execution authorization. Restart uses the same
 persisted expiry and artifact checks. Synthetic workers, simulator controls,
 output records, and dashboard labels remain explicitly marked as demo.
+
+**Verification:** `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -v`
+completed with **138 tests passing** and no failures. Notebook JSON/code-cell
+syntax validation and Python module compilation passed. Session 07.6 readiness:
+**PASS for the offline handoff contract and synthetic-only workflow**; real
+Colab/Drive integration and authenticated workers remain out of scope.

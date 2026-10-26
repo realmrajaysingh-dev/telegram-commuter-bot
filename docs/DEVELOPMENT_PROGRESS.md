@@ -247,3 +247,46 @@ remains separate from Studio task completion and approval.
 matching milestone. Real Colab or operational worker execution remains
 **BLOCKED** pending separate authorization, authenticated identities, network
 and storage design, and implementation of an actual adapter.
+
+## Session 07.6 — Offline Colab handoff preparation
+
+Added `studio/worker_handoff.py` for versioned, bounded JSON job/result
+packages and safe file import/export. A job package can be generated only for
+a queued job already authorized by its Director, and it binds the canonical
+manifest digest, project/task/job IDs, authorization, lease/attempt, selected
+worker identity, and declared provider/capability profile. Export uses the
+existing queue lease/start transitions. It includes checksummed artifact
+references and output declarations, never arbitrary code, URLs, credentials,
+or task evidence bytes.
+
+The existing dashboard can download an authorized package and import a
+manually returned result package. Import validates package schema, identities,
+manifest/lease association, output declarations, strict base64, byte sizes and
+SHA-256, recovers expired leases before checking current SQLite ownership, and
+then calls the existing queue's controlled output store/verifier. Stale,
+duplicate, mismatched, unauthorized, tampered, and replayed results are
+rejected. Failure/interruption packages use the persisted failure path; a
+Director must explicitly retry and reauthorize. Package file I/O is bounded,
+non-overwriting, and rejects symlink/non-regular input files.
+
+Added `notebooks/worker_handoff_offline.ipynb`, a standard-library-only
+scaffold to validate package metadata and package already staged fixture
+bytes, or to create an explicit interruption report. It runs no scripts or
+workload commands and uses no Colab/Drive API,
+model, network, GPU package, or renderer. Current handoff imports are restricted
+to the local synthetic-worker profile; persisted output remains labeled
+synthetic while its actual bytes are independently verified. Provider metadata
+supports future CPU, T4-profile, and alternative adapter identities, but no
+external worker is authenticated or connected.
+
+Inputs remain opaque checksummed references and are not copied into packages;
+no cross-environment artifact transfer is implemented. Job/result packages
+are capped at 16 MiB and package outputs at 8 MiB. Larger real media and any
+non-synthetic result acceptance require a separately reviewed secure storage
+and authenticated-worker design.
+
+**Verification:** `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -v`
+completed with **138 tests passing** and no failures. Notebook JSON/code-cell
+syntax validation and Python module compilation passed. Session 07.6 readiness:
+**PASS for the offline handoff contract and synthetic-only workflow**; real
+Colab/Drive integration and authenticated workers remain out of scope.
