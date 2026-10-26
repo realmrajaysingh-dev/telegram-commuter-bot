@@ -151,3 +151,15 @@ The dashboard displays current and historical assessments, their supporting arti
 **Verification:** focused tests cover distinct roles, self-review rejection, invalid assessor identity and artifact references, duplicate/replayed submissions, conflicting assessments, unauthorized and rationale-free resolutions, non-overridable block assessments, request-revision recovery with preserved history, immutable assessment/resolution rows, completion gating, and dashboard API wiring. Final complete-suite verification: **91 tests passed** (`python -m unittest discover -s tests -v`).
 
 **Readiness:** **PASS** for the local Session 06.2 workflow integration. Authenticated assessor identity and real independent verification remain unavailable; do not treat synthetic role assertions as operational review or expose this local dashboard to untrusted users.
+
+## Session 07.1 — Optional GPU Worker Contracts
+
+**Foundation audit:** continued from clean `docs/autonomous-studio-foundation` at `81b6c9eb8d1b2f8918c3389e4444c81ef60488d3`. The existing project-to-plan-to-task allocation, Director plan approval, locally persisted and hash-verified evidence, synthetic Observer assessment/disagreement resolution, SQLite task ledger, and 91-test baseline are present. These interfaces were preserved; Session 07.1 does not add a competing Studio queue.
+
+Added `studio/worker_contracts.py` as an offline typed contract layer and `docs/GPU_WORKER_ARCHITECTURE.md`. The version-1 manifest distinguishes CPU FFmpeg from T4 GPU inference; describes project/task association, artifact references and checksums, outputs, resource bounds, deadlines, retries, and optional language/model capability metadata; and validates Director authorization, manual worker capabilities, bounded leases, heartbeats, state transitions, recovery, idempotency, and result acceptance. Synthetic tests cover manifest/resource and path validation, Director gating, GPU-unavailable/disconnected queue preservation, lease expiry/recovery, retry exhaustion, stale/duplicate results, output binding, cancellation, and hash-linked audit events.
+
+No SQLite worker/job tables, Colab notebook or connection, external networking, Drive authentication, GPU inference, FFmpeg execution, or production changes were added. The contracts are not durable or connected to the existing Studio task/evidence APIs. Director IDs remain local assertions, and checksum validation is metadata-only until a future storage adapter verifies actual bytes. See `GPU_WORKER_ARCHITECTURE.md` for data flow, resource ceilings, security boundaries, and remaining operational gates.
+
+**Verification:** **108 tests passed** using `python -m unittest discover -s tests -v`; no failures or warnings.
+
+**Readiness:** **PASS** for the requested architecture and offline-contract scope only. Operational worker readiness remains **BLOCKED** pending durable/atomic SQLite integration, authenticated Director and worker identity, real artifact verification and safe shared storage, and a separately approved manual Colab adapter.
