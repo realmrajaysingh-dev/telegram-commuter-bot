@@ -10,6 +10,7 @@ import re
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+from .allocation import AllocationError, TaskAllocationEngine
 from .issues import IssueEngine, IssueError, IssueNotFound
 from .observer import ObserverError
 from .pipeline import ProjectError, ProjectNotFound, ProjectPipeline
@@ -121,6 +122,38 @@ _DASHBOARD_HTML = """<!doctype html>
       </div>
     </section>
     <br>
+    <section class="panel" aria-label="CEO work allocation">
+      <h2>CEO Work Allocation <span class="demo">Local task plans</span></h2>
+      <p class="muted">Planning creates a draft only. A Director must explicitly approve a plan before tasks become ready. No content is produced or published automatically.</p>
+      <div class="project-grid">
+        <section class="project-form">
+          <label>Select Project<select id="allocation-project"><option value="">Select a project</option></select></label>
+          <label>Template<select id="allocation-template">
+            <option value="news_article">News Article</option>
+            <option value="research_documentary">Research-Based Documentary</option>
+            <option value="youtube_video">YouTube Video</option>
+            <option value="social_media_campaign">Social Media Campaign</option>
+          </select></label>
+          <label>Director Instructions<textarea id="allocation-instructions" maxlength="2000" placeholder="Optional scope and constraints"></textarea></label>
+          <label>Desired output format<select id="allocation-format">
+            <option value="markdown">Markdown</option><option value="html">HTML</option>
+            <option value="script">Script</option><option value="platform_package">Platform package</option>
+          </select></label>
+          <label>Language<input id="allocation-language" maxlength="35" value="en"></label>
+          <label>Priority<select id="allocation-priority">
+            <option>low</option><option selected>normal</option><option>high</option><option>urgent</option>
+          </select></label>
+          <label>Deadline<input id="allocation-deadline" type="datetime-local" required></label>
+          <button id="generate-plan" type="button">Generate Task Plan</button>
+          <span id="allocation-message" class="muted">Choose a queued or active Director-approved project.</span>
+        </section>
+        <section>
+          <h2>Task Plan · Preview and Queue</h2>
+          <div id="allocation-plan"><div class="empty">Select a project to view its persisted plan.</div></div>
+        </section>
+      </div>
+    </section>
+    <br>
     <section class="counts" aria-label="Project pipeline counts">
       <div class="tile"><strong id="active">0</strong><span>Active tasks</span></div>
       <div class="tile"><strong id="pending">0</strong><span>Pending tasks</span></div>
@@ -144,7 +177,9 @@ const $ = id => document.getElementById(id);
 let selectedId = null;
 let selectedProjectId = null;
 let projectOptions = null;
+let selectedPlan = null;
 function el(tag, text, cls) { const node=document.createElement(tag); if(text!==undefined) node.textContent=text; if(cls) node.className=cls; return node; }
+function localDateTimeValue(value) { const date=new Date(value); return new Date(date.getTime()-date.getTimezoneOffset()*60000).toISOString().slice(0,16); }
 async function api(url, options) { const response=await fetch(url,options); const body=await response.json(); if(!response.ok) throw new Error(body.error||`Request failed (${response.status})`); return body; }
 const projectStatuses=["draft","queued","active","pending_review","blocked","ready","completed","cancelled"];
 async function loadProjectOptions() {
@@ -171,6 +206,12 @@ async function refreshProjects() {
   if($("project-type-filter").value.trim()) params.set("project_type",$("project-type-filter").value.trim());
   const data=await api("/api/projects?"+params.toString());
   $("project-mode").textContent=data.mode;
+  const allocationProject=$("allocation-project");
+  const selectedAllocationProject=allocationProject.value || selectedProjectId || "";
+  allocationProject.replaceChildren(new Option("Select a project",""));
+  for(const project of data.projects)
+    allocationProject.append(new Option(`${project.title} · ${project.project_id} · ${project.status}${project.is_demo?" · Demo":""}`,project.project_id));
+  allocationProject.value=selectedAllocationProject;
   const counts=$("project-counts"); counts.replaceChildren();
   for(const status of projectStatuses) {
     const tile=el("div",undefined,"project-count");
@@ -192,6 +233,11 @@ async function showProject(id) {
   try {
     const project=await api(`/api/projects/${encodeURIComponent(id)}`);
     selectedProjectId=id;
+    $("allocation-project").value=id;
+    $("allocation-language").value=project.language;
+    $("allocation-priority").value=project.priority;
+    const deadline=new Date(Date.now()+7*24*60*60*1000);
+    $("allocation-deadline").value=localDateTimeValue(deadline);
     const panel=$("project-detail"); panel.replaceChildren();
     panel.append(el("h3",project.title));
     panel.append(el("div",`${project.project_id} · ${project.project_type} · ${project.department_id} · ${project.role_id} · ${project.language} · ${project.priority}`,"muted"));
@@ -225,7 +271,141 @@ async function showProject(id) {
     const history=el("pre",JSON.stringify(project.audit_history.map(event=>({event_type:event.event_type,actor_id:event.actor_id,event:JSON.parse(event.event_json),created_at:event.created_at})),null,2));
     panel.append(section("Project change and audit history",history));
     await loadLinkOptions();
+    await refreshTaskPlan(id);
   } catch(error) { $("project-detail").replaceChildren(el("div",error.message,"notice")); }
+}
+async function refreshTaskPlan(projectId=selectedProjectId) {
+  if(!projectId) {
+    selectedPlan=null;
+    $("allocation-plan").replaceChildren(el("div","Select a project to view its persisted plan.","empty"));
+    return;
+  }
+  const result=await api(`/api/task-plans?project_id=${encodeURIComponent(projectId)}`);
+  selectedPlan=result.plan;
+  if(selectedPlan) renderTaskPlan(selectedPlan);
+  else $("allocation-plan").replaceChildren(el("div","No persisted task plan for this project.","empty"));
+}
+function renderTaskPlan(plan) {
+  const panel=$("allocation-plan"); panel.replaceChildren();
+  panel.append(el("h3",`${plan.template.replaceAll("_"," ")} · ${plan.status.toUpperCase()}`));
+  panel.append(el("p",`${plan.project.title} · ${plan.project.project_id}${plan.is_demo?" · Synthetic demo record":""}`,"muted"));
+  panel.append(el("p",`Format: ${plan.output_format} · Language: ${plan.language} · Priority: ${plan.priority} · Deadline: ${plan.deadline_at}`,"muted"));
+  panel.append(el("p",`Progress: ${JSON.stringify(plan.counts)}`,"status"));
+  if(plan.director_instructions) panel.append(section("Director Instructions",el("pre",plan.director_instructions)));
+  if(plan.status==="draft") {
+    const approve=el("button","Approve Plan"); approve.type="button";
+    approve.addEventListener("click",()=>approveTaskPlan(plan.plan_id,approve));
+    panel.append(approve,el("p","Draft only · no tasks are active or ready before Director approval.","notice"));
+  } else if(plan.manifest.extensions.length===0) {
+    const extend=el("button","Extend Plan by 7 Days"); extend.type="button";
+    extend.addEventListener("click",()=>extendTaskPlan(plan.plan_id,extend));
+    panel.append(extend);
+  }
+  const list=el("div",undefined,"history");
+  for(const task of plan.tasks) {
+    const item=el("div",undefined,"attempt");
+    item.append(el("strong",`${task.title} · ${task.status}`));
+    item.append(el("p",`${task.department_id} · ${task.role_id} · ${task.role_title} · Priority: ${task.priority} · Attempts: ${task.attempts}/${task.max_attempts}`));
+    item.append(el("p",task.description));
+    item.append(el("p",`Dependencies: ${task.dependencies.map(value=>`${value.task_id} (${value.status})`).join(", ")||"None"}`));
+    item.append(el("p",`Evidence required: ${task.evidence_requirements.join(", ")} · Submitted: ${task.evidence.join(", ")||"None"}`));
+    item.append(el("p",`Verification gates: ${task.verification_gates.join(" · ")}`));
+    if(task.last_error_code) item.append(el("p",`Last failure: ${task.last_error_code}${task.retryable?" · retryable":""}`,"notice"));
+    if(task.status==="ready") {
+      const start=el("button",`Start · ${task.role_id}`); start.type="button";
+      start.addEventListener("click",()=>allocationTaskAction(task.task_id,"start",{actor_id:task.role_id},start));
+      item.append(start);
+    }
+    if(task.status==="active") {
+      const review=el("button","Submit for Review"); review.type="button";
+      review.addEventListener("click",()=>submitAllocationTaskReview(task,review));
+      const fail=el("button","Report Failure"); fail.type="button";
+      fail.addEventListener("click",()=>reportAllocationTaskFailure(task,fail));
+      item.append(review,fail);
+    }
+    if(task.status==="review") {
+      const complete=el("button","Complete Task"); complete.type="button";
+      complete.addEventListener("click",()=>allocationTaskAction(task.task_id,"complete",{actor_id:task.role_id},complete));
+      item.append(complete);
+    }
+    if(task.status==="blocked"&&task.retryable&&task.attempts<task.max_attempts) {
+      const retry=el("button","Retry Task"); retry.type="button";
+      retry.addEventListener("click",()=>allocationTaskAction(task.task_id,"retry",{actor_id:task.role_id},retry));
+      item.append(retry);
+    }
+    list.append(item);
+  }
+  panel.append(section("Assigned Tasks and Dependencies",list));
+  const observer=plan.observer;
+  const observerContent=observer
+    ? observer.findings.length
+      ? el("pre",JSON.stringify(observer.findings,null,2),"notice")
+      : el("p",`Clear · ${observer.observer_id} · ${observer.generated_at}`)
+    : el("p","No persisted Observer run.");
+  const observerSection=section("Observer Findings",observerContent);
+  const refreshObserver=el("button","Run Observer Checks"); refreshObserver.type="button";
+  refreshObserver.addEventListener("click",()=>allocationRequest(
+    `/api/task-plans/${encodeURIComponent(plan.plan_id)}/observer`,{},refreshObserver
+  ));
+  observerSection.append(refreshObserver);
+  panel.append(observerSection);
+  const audit=el("pre",JSON.stringify(plan.audit_history.map(event=>({event_type:event.event_type,object_id:event.object_id,actor_id:event.actor_id,event:JSON.parse(event.event_json),created_at:event.created_at})),null,2));
+  panel.append(section("Allocation Audit History",audit));
+}
+async function generateTaskPlan() {
+  const projectId=$("allocation-project").value;
+  if(!projectId) { $("allocation-message").textContent="Select a project first."; return; }
+  const director_id=await requestDirector(); if(!director_id) return;
+  const deadline=new Date($("allocation-deadline").value);
+  if(!Number.isFinite(deadline.getTime())) {
+    $("allocation-message").textContent="Choose a valid deadline.";
+    return;
+  }
+  const payload={
+    project_id:projectId,director_id,template:$("allocation-template").value,
+    director_instructions:$("allocation-instructions").value,
+    output_format:$("allocation-format").value,language:$("allocation-language").value,
+    priority:$("allocation-priority").value,deadline_at:deadline.toISOString()
+  };
+  const button=$("generate-plan"); button.disabled=true;
+  try {
+    const plan=await api("/api/task-plans",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+    selectedProjectId=projectId; selectedPlan=plan; renderTaskPlan(plan);
+    $("allocation-message").textContent=plan.status==="draft"
+      ? `Draft plan ${plan.plan_id} saved. It is not approved or active.`
+      : `Existing approved plan ${plan.plan_id} returned unchanged; no new plan or tasks were created.`;
+  } catch(error) { $("allocation-message").textContent=`Plan not generated: ${error.message}`; }
+  finally { button.disabled=false; }
+}
+async function approveTaskPlan(planId,button) {
+  const director_id=await requestDirector(); if(!director_id) return;
+  await allocationRequest(`/api/task-plans/${encodeURIComponent(planId)}/approve`,{director_id},button);
+}
+async function extendTaskPlan(planId,button) {
+  const director_id=await requestDirector(); if(!director_id) return;
+  await allocationRequest(`/api/task-plans/${encodeURIComponent(planId)}/extend`,{director_id},button);
+}
+async function allocationTaskAction(taskId,action,payload,button) {
+  await allocationRequest(`/api/allocation-tasks/${encodeURIComponent(taskId)}/${action}`,payload,button);
+}
+async function allocationRequest(url,payload,button) {
+  button.disabled=true;
+  try {
+    await api(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+    await refreshTaskPlan();
+  } catch(error) { alert(`Task plan action failed: ${error.message}`); button.disabled=false; }
+}
+async function submitAllocationTaskReview(task,button) {
+  const value=window.prompt(`Enter evidence references (required: ${task.evidence_requirements.join(", ")})`,task.evidence_requirements.join(","));
+  if(value===null) return;
+  const evidence_refs=value.split(",").map(item=>item.trim()).filter(Boolean);
+  await allocationTaskAction(task.task_id,"review",{actor_id:task.role_id,evidence_refs},button);
+}
+async function reportAllocationTaskFailure(task,button) {
+  const error_code=window.prompt("Failure code (uppercase identifier; no sensitive details):");
+  if(!error_code) return;
+  const retryable=window.confirm("Can this task be safely retried?");
+  await allocationTaskAction(task.task_id,"fail",{actor_id:task.role_id,error_code,retryable},button);
 }
 async function loadLinkOptions() {
   const options=await api("/api/project-link-options");
@@ -338,6 +518,11 @@ async function fixIssue(id,button) {
 $("severity").addEventListener("change",()=>refresh().catch(error=>$("inbox").replaceChildren(el("div",error.message,"notice"))));
 $("department").addEventListener("change",()=>refresh().catch(error=>$("inbox").replaceChildren(el("div",error.message,"notice"))));
 $("project-form").addEventListener("submit",createProject);
+$("allocation-project").addEventListener("change",event=>{
+  if(event.target.value) showProject(event.target.value);
+  else refreshTaskPlan(null);
+});
+$("generate-plan").addEventListener("click",()=>generateTaskPlan());
 $("project-department").addEventListener("change",updateRoleOptions);
 for(const id of ["project-status-filter","project-department-filter","project-type-filter"])
   $(id).addEventListener("change",()=>refreshProjects().catch(error=>$("project-list").replaceChildren(el("div",error.message,"notice"))));
@@ -354,6 +539,7 @@ def create_dashboard_server(
     host: str = "127.0.0.1",
     port: int = 8765,
     pipeline: ProjectPipeline | None = None,
+    allocation: TaskAllocationEngine | None = None,
     registry: RoleRegistry | None = None,
 ) -> ThreadingHTTPServer:
     try:
@@ -371,6 +557,19 @@ def create_dashboard_server(
         project_pipeline = ProjectPipeline(
             engine.database, engine.director_ids, role_registry
         )
+    else:
+        role_registry = registry or project_pipeline.registry
+    owns_allocation = allocation is None
+    task_allocation = allocation
+    try:
+        if task_allocation is None:
+            task_allocation = TaskAllocationEngine(
+                engine.database, role_registry, engine.director_ids
+            )
+    except BaseException:
+        if owns_pipeline:
+            project_pipeline.close()
+        raise
 
     class DashboardHandler(BaseHTTPRequestHandler):
         server_version = "VoocksLocalDashboard/1.0"
@@ -421,6 +620,30 @@ def create_dashboard_server(
                 except ProjectError as exc:
                     self._send_json(400, {"error": str(exc)})
                 return
+            if parsed.path == "/api/task-plans":
+                query = parse_qs(parsed.query)
+                project_id = query.get("project_id", [None])[0]
+                try:
+                    if project_id is None:
+                        raise AllocationError("project_id is required")
+                    self._send_json(
+                        200,
+                        {"plan": task_allocation.get_plan_for_project(project_id)},
+                    )
+                except AllocationError as exc:
+                    self._send_json(400, {"error": str(exc)})
+                return
+            plan_match = re.fullmatch(
+                r"/api/task-plans/([A-Za-z0-9][A-Za-z0-9._-]{0,63})",
+                parsed.path,
+            )
+            if plan_match:
+                try:
+                    self._send_json(200, task_allocation.get_plan(plan_match.group(1)))
+                except AllocationError as exc:
+                    status = 404 if "not found" in str(exc).lower() else 400
+                    self._send_json(status, {"error": str(exc)})
+                return
             if parsed.path == "/api/project-options":
                 snapshot = project_pipeline.snapshot()
                 self._send_json(
@@ -453,6 +676,14 @@ def create_dashboard_server(
             self._send_json(404, {"error": "Not found"})
 
         def do_POST(self) -> None:
+            path = urlparse(self.path).path
+            if path == "/api/task-plans" or re.fullmatch(
+                r"/api/(?:task-plans/[A-Za-z0-9][A-Za-z0-9._-]{0,63}/(?:approve|extend|observer)|"
+                r"allocation-tasks/[A-Za-z0-9][A-Za-z0-9._-]{0,63}/(?:start|review|complete|fail|retry))",
+                path,
+            ):
+                self._handle_allocation_action(path)
+                return
             if urlparse(self.path).path == "/api/projects":
                 self._handle_project_create()
                 return
@@ -497,6 +728,89 @@ def create_dashboard_server(
             except IssueNotFound as exc:
                 self._send_json(404, {"error": str(exc)})
             except (IssueError, ValueError, json.JSONDecodeError) as exc:
+                self._send_json(400, {"error": str(exc)})
+
+        def _handle_allocation_action(self, path: str) -> None:
+            try:
+                payload = self._read_payload()
+                if path == "/api/task-plans":
+                    allowed = {
+                        "project_id", "director_id", "template", "director_instructions",
+                        "output_format", "language", "priority", "deadline_at",
+                    }
+                    required = {"project_id", "director_id", "template"}
+                    if set(payload) - allowed or required - set(payload):
+                        raise AllocationError("Task plan fields are missing or unsupported")
+                    plan = task_allocation.generate_task_plan(**payload)
+                    self._send_json(201, plan)
+                    return
+
+                action = re.fullmatch(
+                    r"/api/task-plans/([A-Za-z0-9][A-Za-z0-9._-]{0,63})/(approve|extend|observer)",
+                    path,
+                )
+                if action:
+                    plan_id, operation = action.groups()
+                    if operation == "observer":
+                        if payload:
+                            raise AllocationError("Observer refresh accepts no request fields")
+                        report = task_allocation.refresh_observer_findings(plan_id)
+                        self._send_json(200, report)
+                        return
+                    if set(payload) != {"director_id"}:
+                        raise AllocationError("Only Director ID is accepted for this plan action")
+                    if operation == "approve":
+                        result = task_allocation.approve_plan(
+                            plan_id, director_id=payload["director_id"]
+                        )
+                    else:
+                        result = task_allocation.extend_plan(
+                            plan_id, director_id=payload["director_id"]
+                        )
+                    self._send_json(200, result)
+                    return
+
+                task_action = re.fullmatch(
+                    r"/api/allocation-tasks/([A-Za-z0-9][A-Za-z0-9._-]{0,63})/(start|review|complete|fail|retry)",
+                    path,
+                )
+                if not task_action:
+                    self._send_json(404, {"error": "Not found"})
+                    return
+                task_id, operation = task_action.groups()
+                if operation in {"start", "complete", "retry"}:
+                    if set(payload) != {"actor_id"}:
+                        raise AllocationError("Only the assigned task actor is accepted")
+                    if operation == "start":
+                        result = task_allocation.start_task(task_id, actor_id=payload["actor_id"])
+                    elif operation == "complete":
+                        result = task_allocation.complete_task(task_id, actor_id=payload["actor_id"])
+                    else:
+                        result = task_allocation.retry_task(task_id, actor_id=payload["actor_id"])
+                elif operation == "review":
+                    if set(payload) != {"actor_id", "evidence_refs"}:
+                        raise AllocationError("Task actor and evidence references are required")
+                    result = task_allocation.submit_task_for_review(
+                        task_id,
+                        actor_id=payload["actor_id"],
+                        evidence_refs=payload["evidence_refs"],
+                    )
+                else:
+                    if set(payload) != {"actor_id", "error_code", "retryable"}:
+                        raise AllocationError("Task failure fields are missing or unsupported")
+                    result = task_allocation.fail_task(
+                        task_id,
+                        actor_id=payload["actor_id"],
+                        error_code=payload["error_code"],
+                        retryable=payload["retryable"],
+                    )
+                self._send_json(200, result)
+            except AllocationError as exc:
+                status = 404 if "not found" in str(exc).lower() else 400
+                self._send_json(status, {"error": str(exc)})
+            except ProjectError as exc:
+                self._send_json(400, {"error": str(exc)})
+            except (ValueError, TypeError, json.JSONDecodeError) as exc:
                 self._send_json(400, {"error": str(exc)})
 
         def _read_payload(self) -> dict[str, Any]:
@@ -562,9 +876,18 @@ def create_dashboard_server(
         return _DashboardHTTPServer(
             (host, port),
             DashboardHandler,
-            owned_resources=(project_pipeline,) if owns_pipeline else (),
+            owned_resources=tuple(
+                resource
+                for resource, owned in (
+                    (project_pipeline, owns_pipeline),
+                    (task_allocation, owns_allocation),
+                )
+                if owned
+            ),
         )
     except BaseException:
         if owns_pipeline:
             project_pipeline.close()
+        if owns_allocation:
+            task_allocation.close()
         raise
