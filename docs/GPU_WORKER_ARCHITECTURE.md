@@ -512,3 +512,151 @@ focused worker queue/handoff module passed all **33 tests**. Session 07.8
 readiness: **PASS** for the local, synthetic-only, Director-controlled
 lifecycle; authenticated remote workers and real Colab/Drive integration
 remain blockers for a future milestone.
+
+## Session 07.9 — Remote-worker trust and secure transport contract
+
+### Current trust boundary
+
+Sessions 07.1–07.8 provide the versioned job and worker capability contracts,
+Director-authorized SQLite queue, leases/heartbeats/retries, hash-linked audit,
+manual offline handoff, controlled artifact storage, byte/hash verification,
+and task/Observer completion gates. They do not authenticate a worker or
+Director, establish a network transport, or verify remote hardware. The local
+IDs and `DEMO / UNAUTHENTICATED` notebook assertions remain non-trustworthy
+metadata. No behavior in this section activates a remote worker.
+
+`studio/worker_trust.py` defines schema-version-1, in-memory value contracts
+for already-verified credential claims and request metadata. It validates
+short credential/request lifetimes, audience, unique allowlisted operation
+scopes, exact worker/job/project/task/lease bindings, route/method, body
+SHA-256, and bounded IDs/body size. Claim validation is deliberately not
+signature validation. Callers must first authenticate the credential using a
+trusted, allowlisted issuer and check its live revocation status. The
+provider's immutable `(issuer, subject)` identity must map server-side to the
+manually approved `worker_id`; the worker ID is never accepted as
+self-authentication. `RemoteRequestReplayStore` and
+`RemoteCredentialStatusStore` are interfaces only; the test replay fixture is
+not durable or suitable for production.
+
+### Future authentication and request contract
+
+Before any network operation, a separately approved service must validate
+worker identity using an established mechanism (for example, a managed
+OIDC/OAuth issuer with strict issuer/audience/algorithm/key-rotation
+validation, optionally reinforced with mTLS). Do not implement JWT, TLS,
+signature, or key-management cryptography in this repository. A credential
+must be minted only after the existing Director authorization and active
+queue lease are persisted. Its claims bind one worker identity, audience,
+credential ID, exact job/project/task/lease, explicit scopes, issue time, and
+expiry. Wildcards and cross-job scopes are prohibited. The offline v1
+contract caps credential lifetime at 15 minutes and never beyond the lease.
+
+Every request must use HTTPS with valid server-certificate verification
+(TLS 1.3 preferred; a documented TLS 1.2 floor only if provider support
+requires it), and authenticate the worker at the application boundary.
+Redirects must not forward credentials. The authenticated request proof must
+bind method, canonical path, exact job and lease, request ID, issue/expiry
+times, and SHA-256 of the exact body bytes. The offline contract permits only
+the fixed `GET job`, `GET inputs`, `POST heartbeat`, and `POST result`
+operation paths, caps request freshness at 60 seconds, and checks the body
+digest; it does not itself verify a token or request signature.
+
+After cryptographic authentication, validate the claims against the current
+SQLite authorization, task/project association, worker registration,
+unexpired lease, declared operation scope, and actual artifact declaration.
+The control plane—not the worker—selects files and output destinations.
+Existing queue idempotency and result/lease checks remain authoritative.
+Request IDs must be unique per credential. Production replay protection must
+be durable and atomic with the associated queue mutation/idempotency record;
+persisting only a nonce before a non-transactional side effect can lose a
+legitimate retry after a crash.
+
+### Rotation, revocation, artifact movement, and recovery
+
+Keep signing keys and worker credentials in a managed secret store or
+provider-supported protected runtime injection. Never place credentials in
+notebooks, manifests, job/result packages, SQLite audit payloads, browser
+storage, source control, or logs. Persist credential IDs and status metadata,
+not bearer values. Use short-lived credentials, overlap key rotation only
+within a defined window, and support immediate issuer/key/worker/job
+revocation. Re-check status on every request. Credential expiry or revocation
+must stop new operations; the existing lease expiry/recovery path then marks
+work interrupted and requires the current retry and Director reauthorization
+rules.
+
+Future artifact transfer must be job-scoped, size-bounded, and time-limited.
+Use an authenticated transfer service or short-lived, single-object
+capabilities issued by the control plane; never accept worker-provided
+arbitrary URLs or paths. Stream into a per-job quarantine area, enforce byte
+limits while streaming, recompute SHA-256 from received bytes, verify
+declaration/lease ownership, and atomically promote only validated outputs
+using the existing controlled artifact verifier. A transport interruption
+does not imply success: resume only with a fresh authorized request and
+idempotency key, otherwise allow lease recovery and reject stale results.
+
+Capability declarations remain claims, not hardware attestation. A worker
+must be manually registered and explicitly marked available. Its provider
+session, GPU, memory, and capabilities should be rechecked by a trusted
+runtime when available; unavailable, disconnected, expired, or unsupported
+workers leave jobs queued or trigger existing lease recovery. Remote worker
+success never marks Studio tasks complete and cannot bypass evidence,
+Observer disagreement, review, or Director completion.
+
+### Threat model
+
+| Threat | Required control |
+|---|---|
+| Stolen/forged credential or spoofed worker ID | Provider-backed authentication, strict issuer/audience/algorithm validation, short expiry, revocation, no ID-only trust |
+| Replay or duplicate submit | Signed/bound request ID and timestamps; durable unique nonce/idempotency record atomically committed with queue mutation |
+| Cross-job/project artifact access (IDOR) | Credential and every request bound to the exact worker, job, project, task, and lease; authorize each artifact against current queue state |
+| Body substitution or corrupted transfer | Bind exact body digest; stream under limits; hash actual bytes and verify declaration before controlled storage promotion |
+| Stale worker or delayed result | Check current lease, attempt, deadline, credential expiry, and queue state at acceptance; recover expired leases through existing transitions |
+| Compromised/expired Colab runtime | Treat session as untrusted and ephemeral; no long-lived secrets or authority; revoke/expire credentials and recover lease |
+| Credential leakage in browser, package, logs, or notebook | Keep secrets out of those surfaces; use provider-managed secret injection, redaction, rotation, and audit credential IDs only |
+| False capability/GPU declaration | Treat capability metadata as unverified; do not claim T4 availability without runtime verification; retain synthetic/mock labels |
+| Control-plane or replay-store crash | Durable transactionally consistent queue, nonce/idempotency state, audit event, and result acceptance; backup/restore and integrity checks |
+| Malicious or oversized artifact/path | Fixed job-scoped object references, stream limits, quarantine, no archive extraction, safe names, byte-level verification |
+
+The control plane, identity issuer, TLS termination, durable replay/status
+store, and artifact store become trusted components in any future deployment.
+An authenticated remote worker is still untrusted with respect to other jobs,
+Studio approvals, arbitrary code execution, and task completion.
+
+### Zero-cost-first feasibility
+
+**Google Colab:** a manually launched notebook is a disposable, user-session
+runtime, not an always-on worker. Free T4 availability, quotas, idle
+disconnection, maximum session duration, storage, and outbound transfer are
+not guaranteed and may change. Runtime files and process memory are
+ephemeral. It is reasonable only for explicitly authorized, manually
+transferred, small test inputs with no durable secrets and a short lease; it
+cannot provide reliable heartbeat, continuous queue consumption, durable
+artifact storage, or an availability promise. A session expiry should be
+treated as interruption and handled by existing lease recovery. A mock T4
+profile is not evidence of real hardware.
+
+**Hostinger Business shared hosting:** do not assume it can host a persistent
+authenticated worker API or queue service. Shared plans are not GPU compute;
+long-running background process, inbound listener, Python runtime, outbound
+TLS behavior, execution limits, certificate configuration, and database
+locking/backup capabilities are plan- and policy-dependent. Verify the
+current plan and terms directly before considering even a control-plane
+endpoint. The present loopback dashboard and SQLite database are not remotely
+reachable or designed as a distributed service. Do not expose them with a
+public tunnel. A reliable public control plane, durable object transfer,
+secret management, and monitored always-on worker may require a separately
+approved hosted service and incur cost; zero-cost-first does not mean
+availability or security is free.
+
+No service, network endpoint, credential, secret store, transport, Colab or
+Hostinger connection, external dependency, workload execution, or database
+migration was added in Session 07.9. The contract tests use synthetic
+identifiers and a test-only in-memory replay fixture. Readiness is limited to
+offline contract validation; production remote connectivity remains blocked.
+
+**Verification:** `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -v`
+completed with **149 tests passing**, no failures, and no reported warnings.
+The focused trust and worker-contract tests passed (**25 tests**). Session
+07.9 readiness: **PASS** for the requested offline architecture and
+contract-validation scope; deployment and remote worker connectivity remain
+**BLOCKED** pending the prerequisites above.

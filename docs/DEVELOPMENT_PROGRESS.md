@@ -358,3 +358,43 @@ with **141 tests passing**, no failures, and no reported warnings. Session
 07.8 readiness: **PASS** for the local, synthetic-only, Director-controlled
 lifecycle; real Colab/Drive connectivity and authenticated remote identities
 remain out of scope.
+
+## Session 07.9 — Remote-worker trust and secure transport architecture
+
+**Audit:** started from clean branch `docs/autonomous-studio-foundation` at
+`5b4abac4c23f5163008d029b25317264ff947437`. Sessions 07.1–07.8 already
+provide versioned worker/job contracts, capability matching, Director-bound
+queue authorization, SQLite leases and retries, audit chaining, offline
+handoff, controlled byte/hash artifact verification, recovery, dashboard
+visibility, and task/Observer completion gates. They explicitly do not
+authenticate remote identities or implement transport, revocation, or
+credential storage. These existing modules and state boundaries were retained.
+
+Added `studio/worker_trust.py` with schema-versioned typed contracts and
+offline validators for externally verified claims and authenticated-request
+metadata. The contracts constrain audience, worker/job/project/task/lease
+binding, operation scopes, expiry, request IDs, exact route/method, body size,
+and actual body SHA-256. Credential lifetime is capped at 15 minutes and
+request freshness at 60 seconds, each bounded by the active lease. A
+durable-replay-store protocol is defined without a production implementation.
+The module intentionally does not verify tokens/signatures, issue/revoke
+credentials, implement TLS, store secrets, or expose an endpoint; passing
+offline validation does not authenticate any identity.
+
+Updated `docs/GPU_WORKER_ARCHITECTURE.md` with the trust flow, transport and
+secret-management requirements, threat table, safe artifact transfer and
+interruption handling, capability-attestation limits, and zero-cost-first
+Colab/Hostinger Business shared-hosting feasibility constraints. Existing
+leases, retries, idempotency, audits, Director controls, evidence verification,
+and Observer boundaries remain authoritative. No database records or
+production files were changed.
+
+**Verification:** `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -v`
+completed with **149 tests passing**, no failures, and no reported warnings.
+The focused trust and existing worker-contract tests passed (**25 tests**).
+Coverage includes schema, issuer/audience, scope, resource isolation, expiry,
+body binding, and duplicate request IDs using only offline fixtures. Session
+07.9 readiness is **PASS** for architecture and offline contract validation;
+remote connectivity remains **BLOCKED** pending provider-backed
+authentication, durable replay/revocation stores, a secure hosted control
+plane and artifact channel, and separate approval for operational integration.
