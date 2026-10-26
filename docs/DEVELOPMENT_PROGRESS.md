@@ -70,3 +70,19 @@ Findings are stable-ID records with observer ID, rule code, severity, subject, a
 **Files added/changed in Session 02:** `studio/observer.py`, `studio/__init__.py`, `tests/test_observer.py`, `docs/OBSERVER_NETWORK.md`, `docs/DEVELOPMENT_ROADMAP.md`, and this report.
 
 **Verification:** the combined original and observer test suite contains 37 tests. All fixtures are synthetic and no external service or production workflow is exercised.
+
+## Session 03 — Director-Controlled Issue Resolution Prototype
+
+Implemented `studio/issues.py` as a persistent SQLite issue registry and deterministic repair engine, plus `studio/dashboard.py` as a local loopback-only dashboard. New issues retain project, department, category, severity, description, sanitized logs, evidence references, lifecycle timestamps, a suggested allowlisted action, Director instructions, repair attempts, results, observer review, and a hash-chained audit history.
+
+Each repair requires a configured local Director ID to issue a short-lived, single-use command scoped to one issue and attempt. Outstanding duplicate commands, invalid commands, expired authorizations, unauthorized Directors, and exhausted retry limits are rejected. The local ID check is a prototype boundary, not production authentication. AI output cannot authorize or execute repairs.
+
+Supported operations are limited to synthetic failed-task retry, synthetic stuck-task recovery, local symbolic artifact-reference validation, and deterministic FFmpeg error classification plus a synthetic render check. No FFmpeg process is started. An independent local review checks the repair result and blocks the issue on disagreement. AI-generated code repair, arbitrary file edits, shell commands, Git operations, and production deployment are not enabled.
+
+The dashboard reports the actual available task and issue counts from the local SQLite database, filters the issue inbox, shows diagnostic/evidence details and attempt/audit history, and sends its Fix action to the same authorization and repair backend. It binds only to a loopback address and is explicitly labeled Demo Mode. Its local Director ID prompt is simulated and must not be represented as production authentication.
+
+**Files added/changed in Session 03:** `.gitignore`, `studio/issues.py`, `studio/dashboard.py`, `studio/__init__.py`, `tests/test_issue_engine.py`, `docs/ARCHITECTURE.md`, and this report. No production bot source, production website file, workflow, credential, external account connection, paid service, or deployment configuration was changed or used.
+
+**Verification:** `python -m unittest discover -s tests -v` runs the combined original and new suite; all **52 tests** pass. `python -m py_compile studio/issues.py studio/dashboard.py studio/__init__.py tests/test_issue_engine.py` and `git diff --check` also pass. The pre-implementation baseline was 37 passing tests. Cache files are ignored by the new `.gitignore` rules.
+
+**Remaining limitations:** this is a local prototype, not production authentication or an unattended issue detector. Repairs act only on synthetic issue records; artifact checks validate local symbolic references rather than opening or modifying files. FFmpeg is classified but never invoked. There is no AI repair, real task mutation, background scheduler, notification channel, remote dashboard, deployment, or public publishing. Local database access is not protected against a user with filesystem access.
