@@ -112,3 +112,30 @@ Consolidation fixed one idempotency edge case: generating the same project plan 
 **Verification:** `python -m unittest discover -s tests -v` passes all **86 tests**. Python compilation, embedded dashboard JavaScript syntax, and `git diff --check` pass. Security-focused regression coverage checks evidence type/task binding, tampering, missing and empty artifacts, retry limits, approval gates, and local persistence. A source scan of the allocation, dashboard, and pipeline modules found no AI-client, publishing, Telegram-send, or external-request calls.
 
 **Remaining limitations and outstanding work:** local Director IDs are trusted configuration, not authentication; do not expose the dashboard to untrusted callers. The task role registry describes responsibilities rather than staffed agents, and tasks are not autonomously executed. Evidence integrity does not establish factual accuracy, provenance, licensing, rights, or consent. Local filesystem/database operators can alter records; audit hashes are not a signed external trust anchor. There is no schema migration strategy, backup/retention policy, or unattended recovery/scheduling. This milestone does not authorize or alter production bot, external AI, or publishing workflows.
+
+## Session 06 — Task Queue, Approval Gates, and Reliability Audit
+
+The audit verified the Session 05 baseline at commit `9a105bf62250f420d090b586215beeb396db7f90`, on `docs/autonomous-studio-foundation` with a clean worktree; all 86 baseline tests passed.
+
+Session 06 closes the task-completion authorization gap. Completion now requires the same configured Director who approved the plan, valid task-linked evidence, an unexpired approved assignment, and a clear current allocation Observer run. Director acceptance and completion are separately recorded in the existing hash-chained audit history with the verified artifact hashes and Observer run. Repeating a completion request for an already completed task is read-only and does not append events. The dashboard asks for Director confirmation before acceptance.
+
+Allocation Observer-blocked tasks now expose a Director review action. It reruns the Observer and records the review in audit history. If findings remain, the task remains blocked; this is not an override. Once the underlying persisted cause is corrected and the Observer is clear, the approving Director may return the task to Active for resubmission. Task readiness transitions after plan approval and dependency completion are now individually recorded; retry audit entries include the resulting queue state.
+
+### Capability status
+
+| Capability | Session 06 status | Audit result |
+|---|---|---|
+| Project-to-plan-to-task persistence and role/department validation | Implemented | Existing flow verified; preserved |
+| Director plan approval and assignment horizon | Implemented | Preserved seven-day window, one extension, fourteen-day ceiling |
+| Dependency-aware readiness and ordering | Implemented | Preserved; readiness transitions are now auditable |
+| Artifact integrity and task association | Implemented | Preserved and rechecked before Review and completion |
+| Retry, failure reporting, and task blocking | Implemented | Preserved three-attempt cap and failure records |
+| Dashboard interruption/restart and duplicate activation protection | Implemented for local persistence | Active state and attempt count survive reopening; restart cannot reactivate an already active task |
+| Independent completion acceptance | Implemented as a local Director gate | Requires approving Director, valid evidence, and clear Observer; Director identity remains simulated |
+| Observer block escalation | Implemented without override | Director may recheck after remediation; findings continue to block |
+| Multiple Observer disagreement on allocation tasks | **Partial / outstanding** | The separate Observer Engine supports disagreement and Director resolution for its own ledger, but allocation tasks currently have one deterministic policy Observer and no connected multi-assessment feed. No synthetic observers were added. |
+| Autonomous execution, AI, external services, and publishing | Not implemented by design | No task content is executed; no external service or publishing calls |
+
+**Verification:** the baseline passed 86 tests; the complete post-change suite passes **88 tests**. Focused checks cover Director acceptance, non-Director rejection, idempotent completion, auditable dependency readiness, non-overridable Observer findings, Director review recovery, and active-task persistence across restart without duplicate activation. Python compilation, embedded dashboard JavaScript syntax, and `git diff --check` pass. A source scan of the allocation, dashboard, and project-pipeline modules found no AI-client, publishing, Telegram-send, process-execution, or external-request calls.
+
+**Readiness:** **BLOCKED** for the full Session 06 checklist until a real, authorized source of independent allocation-task assessments is connected to the existing Observer disagreement and Director-resolution workflow. This is intentionally not simulated. The local Director prompt is not authentication; use only in the trusted local prototype.

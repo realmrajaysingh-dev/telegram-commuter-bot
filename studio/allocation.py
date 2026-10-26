@@ -1304,6 +1304,19 @@ class TaskAllocationEngine:
                 )
             ]
             plan["audit_history"] = self.audit_events(plan_id)
+            observer_review_state: dict[str, bool] = {}
+            for event in plan["audit_history"]:
+                if event["event_type"] in {
+                    "allocation_task_observer_blocked",
+                    "allocation_task_director_review_retained_block",
+                }:
+                    observer_review_state[event["object_id"]] = True
+                elif event["event_type"] == "allocation_task_director_review_cleared":
+                    observer_review_state[event["object_id"]] = False
+            for task in tasks:
+                task["observer_review_pending"] = observer_review_state.get(
+                    task["task_id"], False
+                )
             return plan
 
     def get_plan_for_project(self, project_id: str) -> dict[str, Any] | None:
@@ -1369,6 +1382,14 @@ class TaskAllocationEngine:
                 """,
                 (AllocationTaskStatus.READY.value, _timestamp(current), plan_id),
             )
+            for task in tasks:
+                if not json.loads(task["dependencies_json"]):
+                    self._audit(
+                        plan_id, task["task_id"], "allocation_task_became_ready",
+                        actor,
+                        {"reason": "plan_approved", "status": AllocationTaskStatus.READY.value},
+                        current,
+                    )
             self._audit(
                 plan_id, plan_id, "task_plan_approved", actor,
                 {"plan_hash": plan_hash, "ready_task_count": sum(
@@ -1551,14 +1572,20 @@ class TaskAllocationEngine:
         self,
         task_id: str,
         *,
-        actor_id: str,
+        director_id: str,
         now: datetime | None = None,
     ) -> dict[str, Any]:
+        actor = self._require_director(director_id)
         current = now or datetime.now(timezone.utc)
         with self._lock, self._connection:
             task = self._task_row(task_id)
-            actor = self._require_task_actor(task, actor_id)
             plan = self._plan_row(task["plan_id"])
+            if plan["approved_by"] != actor:
+                raise AllocationError(
+                    "Only the Director who approved this task plan may accept task completion"
+                )
+            if task["status"] == AllocationTaskStatus.COMPLETED.value:
+                return self.get_plan(plan["plan_id"])
             self._require_active_plan(plan, now=current)
             if task["status"] != AllocationTaskStatus.REVIEW.value:
                 raise AllocationError("Only review tasks can be completed")
@@ -1571,6 +1598,23 @@ class TaskAllocationEngine:
             observer_report = self._refresh_observer(plan["plan_id"], now=current)
             if not observer_report["is_clear"]:
                 raise AllocationError("Observer policy checks block task completion")
+            verified_artifacts = [
+                {
+                    "artifact_id": artifact["artifact_id"],
+                    "evidence_type": artifact["evidence_type"],
+                    "sha256": artifact["sha256"],
+                }
+                for artifact in validation["artifacts"]
+            ]
+            self._audit(
+                plan["plan_id"], task_id, "allocation_task_director_accepted",
+                actor,
+                {
+                    "artifact_hashes": verified_artifacts,
+                    "observer_run_id": observer_report["run_id"],
+                },
+                current,
+            )
             self._connection.execute(
                 """
                 UPDATE studio_allocation_tasks
@@ -1601,6 +1645,17 @@ class TaskAllocationEngine:
                     self._connection.execute(
                         "UPDATE studio_allocation_tasks SET status = ?, updated_at = ? WHERE task_id = ?",
                         (AllocationTaskStatus.READY.value, _timestamp(current), pending["task_id"]),
+                    )
+                    self._audit(
+                        plan["plan_id"], pending["task_id"],
+                        "allocation_task_became_ready",
+                        ALLOCATION_OBSERVER_ID,
+                        {
+                            "reason": "dependencies_completed",
+                            "dependency_task_ids": dependencies,
+                            "status": AllocationTaskStatus.READY.value,
+                        },
+                        current,
                     )
             self._refresh_observer(plan["plan_id"], now=current)
         return self.get_plan(plan["plan_id"])
@@ -1691,7 +1746,73 @@ class TaskAllocationEngine:
             )
             self._audit(
                 plan["plan_id"], task_id, "allocation_task_retry_queued", actor,
-                {"attempts_used": task["attempts"], "max_attempts": task["max_attempts"]},
+                {
+                    "attempts_used": task["attempts"],
+                    "max_attempts": task["max_attempts"],
+                    "next_status": next_status,
+                },
+                current,
+            )
+        return self.get_plan(plan["plan_id"])
+
+    def review_observer_block(
+        self,
+        task_id: str,
+        *,
+        director_id: str,
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
+        actor = self._require_director(director_id)
+        current = now or datetime.now(timezone.utc)
+        with self._lock, self._connection:
+            task = self._task_row(task_id)
+            plan = self._plan_row(task["plan_id"])
+            self._require_active_plan(plan, now=current)
+            if plan["approved_by"] != actor:
+                raise AllocationError(
+                    "Only the Director who approved this task plan may review its Observer block"
+                )
+            if task["status"] != AllocationTaskStatus.BLOCKED.value or task["retryable"]:
+                raise AllocationError("Only Observer-blocked tasks can receive Director review")
+            previous = self._connection.execute(
+                """
+                SELECT event_type FROM studio_allocation_audit_events
+                WHERE plan_id = ? AND object_id = ? AND event_type IN (
+                    'allocation_task_observer_blocked',
+                    'allocation_task_director_review_retained_block',
+                    'allocation_task_director_review_cleared'
+                )
+                ORDER BY sequence DESC LIMIT 1
+                """,
+                (plan["plan_id"], task_id),
+            ).fetchone()
+            if previous is None or previous["event_type"] == "allocation_task_director_review_cleared":
+                raise AllocationError("Task has no unresolved Observer block for Director review")
+
+            report = self._refresh_observer(plan["plan_id"], now=current)
+            if report["is_clear"]:
+                self._connection.execute(
+                    """
+                    UPDATE studio_allocation_tasks
+                    SET status = ?, updated_at = ?
+                    WHERE task_id = ?
+                    """,
+                    (AllocationTaskStatus.ACTIVE.value, _timestamp(current), task_id),
+                )
+                event_type = "allocation_task_director_review_cleared"
+            else:
+                event_type = "allocation_task_director_review_retained_block"
+            self._audit(
+                plan["plan_id"], task_id, event_type, actor,
+                {
+                    "observer_run_id": report["run_id"],
+                    "finding_codes": [item["code"] for item in report["findings"]],
+                    "status": (
+                        AllocationTaskStatus.ACTIVE.value
+                        if report["is_clear"]
+                        else AllocationTaskStatus.BLOCKED.value
+                    ),
+                },
                 current,
             )
         return self.get_plan(plan["plan_id"])

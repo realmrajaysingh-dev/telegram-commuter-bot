@@ -347,12 +347,17 @@ function renderTaskPlan(plan) {
     }
     if(task.status==="review") {
       if(task.evidence_verified) {
-        const complete=el("button","Complete Task"); complete.type="button";
-        complete.addEventListener("click",()=>allocationTaskAction(task.task_id,"complete",{actor_id:task.role_id},complete));
-        item.append(complete);
+        const complete=el("button","Director Accept & Complete"); complete.type="button";
+        complete.addEventListener("click",()=>completeAllocationTask(task,complete));
+        item.append(complete,el("p","Completion requires the approving Director to inspect the submitted evidence and accept the verification record.","notice"));
       } else {
         item.append(el("p","Completion blocked: provide genuine evidence, then submit the task for review again.","notice"));
       }
+    }
+    if(task.status==="blocked"&&task.observer_review_pending) {
+      const directorReview=el("button","Director Review Observer Block"); directorReview.type="button";
+      directorReview.addEventListener("click",()=>reviewObserverBlock(task,directorReview));
+      item.append(directorReview,el("p","Director review reruns the Observer. Findings remain blocking until their cause is corrected; this action cannot override them.","notice"));
     }
     if(task.status==="blocked"&&task.retryable&&task.attempts<task.max_attempts) {
       const retry=el("button","Retry Task"); retry.type="button";
@@ -427,6 +432,15 @@ async function uploadAllocationEvidence(task,evidence_type,content,button) {
 }
 async function submitAllocationTaskReview(task,button) {
   await allocationTaskAction(task.task_id,"review",{actor_id:task.role_id},button);
+}
+async function completeAllocationTask(task,button) {
+  const director_id=await requestDirector(); if(!director_id) return;
+  if(!window.confirm("Confirm that you reviewed the persisted evidence and Observer record before accepting this task?")) return;
+  await allocationTaskAction(task.task_id,"complete",{director_id},button);
+}
+async function reviewObserverBlock(task,button) {
+  const director_id=await requestDirector(); if(!director_id) return;
+  await allocationTaskAction(task.task_id,"director-review",{director_id},button);
 }
 async function reportAllocationTaskFailure(task,button) {
   const error_code=window.prompt("Failure code (uppercase identifier; no sensitive details):");
@@ -706,7 +720,7 @@ def create_dashboard_server(
             path = urlparse(self.path).path
             if path == "/api/task-plans" or re.fullmatch(
                 r"/api/(?:task-plans/[A-Za-z0-9][A-Za-z0-9._-]{0,63}/(?:approve|extend|observer)|"
-                r"allocation-tasks/[A-Za-z0-9][A-Za-z0-9._-]{0,63}/(?:evidence|start|review|complete|fail|retry))",
+                r"allocation-tasks/[A-Za-z0-9][A-Za-z0-9._-]{0,63}/(?:evidence|start|review|complete|fail|retry|director-review))",
                 path,
             ):
                 self._handle_allocation_action(path)
@@ -803,22 +817,32 @@ def create_dashboard_server(
                     return
 
                 task_action = re.fullmatch(
-                    r"/api/allocation-tasks/([A-Za-z0-9][A-Za-z0-9._-]{0,63})/(evidence|start|review|complete|fail|retry)",
+                    r"/api/allocation-tasks/([A-Za-z0-9][A-Za-z0-9._-]{0,63})/(evidence|start|review|complete|fail|retry|director-review)",
                     path,
                 )
                 if not task_action:
                     self._send_json(404, {"error": "Not found"})
                     return
                 task_id, operation = task_action.groups()
-                if operation in {"start", "complete", "retry"}:
+                if operation in {"start", "retry"}:
                     if set(payload) != {"actor_id"}:
                         raise AllocationError("Only the assigned task actor is accepted")
                     if operation == "start":
                         result = task_allocation.start_task(task_id, actor_id=payload["actor_id"])
-                    elif operation == "complete":
-                        result = task_allocation.complete_task(task_id, actor_id=payload["actor_id"])
                     else:
                         result = task_allocation.retry_task(task_id, actor_id=payload["actor_id"])
+                elif operation == "complete":
+                    if set(payload) != {"director_id"}:
+                        raise AllocationError("Only the approving Director ID is accepted")
+                    result = task_allocation.complete_task(
+                        task_id, director_id=payload["director_id"]
+                    )
+                elif operation == "director-review":
+                    if set(payload) != {"director_id"}:
+                        raise AllocationError("Only the approving Director ID is accepted")
+                    result = task_allocation.review_observer_block(
+                        task_id, director_id=payload["director_id"]
+                    )
                 elif operation == "evidence":
                     if set(payload) != {"actor_id", "evidence_type", "content"}:
                         raise AllocationError("Task actor, evidence type, and artifact content are required")

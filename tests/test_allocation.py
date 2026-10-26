@@ -301,12 +301,31 @@ class TaskAllocationTests(unittest.TestCase):
         )
         self.assertEqual(self.first_task(review, "research_scope")["status"], "review")
         self.assertTrue(self.first_task(review, "research_scope")["evidence_verified"])
+        with self.assertRaisesRegex(AllocationError, "configured local Director"):
+            self.allocation.complete_task(
+                first["task_id"], director_id=first["role_id"], now=NOW
+            )
         completed = self.allocation.complete_task(
-            first["task_id"], actor_id=first["role_id"], now=NOW
+            first["task_id"], director_id=DIRECTOR_ID, now=NOW
         )
         self.assertEqual(self.first_task(completed, "research_scope")["status"], "completed")
+        self.assertIn(
+            "allocation_task_director_accepted",
+            {event["event_type"] for event in completed["audit_history"]},
+        )
+        event_count = len(completed["audit_history"])
+        replayed = self.allocation.complete_task(
+            first["task_id"], director_id=DIRECTOR_ID, now=NOW
+        )
+        self.assertEqual(len(replayed["audit_history"]), event_count)
         self.assertEqual(self.first_task(completed, "source_collection")["status"], "ready")
         self.assertEqual(self.first_task(completed, "source_collection")["dependencies"][0]["status"], "completed")
+        ready_event = next(
+            event for event in completed["audit_history"]
+            if event["object_id"] == self.first_task(completed, "source_collection")["task_id"]
+            and event["event_type"] == "allocation_task_became_ready"
+        )
+        self.assertEqual(json.loads(ready_event["event_json"])["reason"], "dependencies_completed")
 
     def test_empty_evidence_artifact_is_rejected(self) -> None:
         _, task = self.activate_task()
@@ -384,7 +403,7 @@ class TaskAllocationTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(AllocationError, "artifact-hash-mismatch"):
             self.allocation.complete_task(
-                task["task_id"], actor_id=task["role_id"], now=NOW
+                task["task_id"], director_id=DIRECTOR_ID, now=NOW
             )
         report = self.allocation.refresh_observer_findings(task["plan_id"], now=NOW)
         self.assertIn(
@@ -421,12 +440,61 @@ class TaskAllocationTests(unittest.TestCase):
             )
         with self.assertRaisesRegex(AllocationError, "without verified evidence artifacts"):
             self.allocation.complete_task(
-                task["task_id"], actor_id=task["role_id"], now=NOW
+                task["task_id"], director_id=DIRECTOR_ID, now=NOW
             )
         persisted = self.allocation.get_plan(plan["plan_id"])
         current = self.first_task(persisted, "research_scope")
         self.assertEqual(current["status"], "review")
         self.assertFalse(current["evidence_verified"])
+
+    def test_director_review_rechecks_observer_block_without_overriding_findings(self) -> None:
+        plan, task = self.activate_task()
+        self.submit_artifact(task, content="Evidence for observer review.")
+        with self.allocation._connection:
+            self.allocation._connection.execute(
+                "UPDATE studio_allocation_tasks SET department_id=? WHERE task_id=?",
+                ("D01", task["task_id"]),
+            )
+        blocked = self.allocation.submit_task_for_review(
+            task["task_id"], actor_id=task["role_id"], now=NOW
+        )
+        blocked_task = self.first_task(blocked, "research_scope")
+        self.assertEqual(blocked_task["status"], "blocked")
+        self.assertTrue(blocked_task["observer_review_pending"])
+        with self.assertRaisesRegex(AllocationError, "configured local Director"):
+            self.allocation.review_observer_block(
+                task["task_id"], director_id="another-director", now=NOW
+            )
+
+        still_blocked = self.allocation.review_observer_block(
+            task["task_id"], director_id=DIRECTOR_ID, now=NOW
+        )
+        self.assertEqual(self.first_task(still_blocked, "research_scope")["status"], "blocked")
+        self.assertTrue(self.first_task(still_blocked, "research_scope")["observer_review_pending"])
+        self.assertIn(
+            "allocation_task_director_review_retained_block",
+            {event["event_type"] for event in still_blocked["audit_history"]},
+        )
+
+        with self.allocation._connection:
+            self.allocation._connection.execute(
+                "UPDATE studio_allocation_tasks SET department_id=? WHERE task_id=?",
+                (self.registry.get(task["role_id"]).department_id, task["task_id"]),
+            )
+        cleared = self.allocation.review_observer_block(
+            task["task_id"], director_id=DIRECTOR_ID, now=NOW
+        )
+        cleared_task = self.first_task(cleared, "research_scope")
+        self.assertEqual(cleared_task["status"], "active")
+        self.assertFalse(cleared_task["observer_review_pending"])
+        reviewed = self.allocation.submit_task_for_review(
+            task["task_id"], actor_id=task["role_id"], now=NOW
+        )
+        completed = self.allocation.complete_task(
+            task["task_id"], director_id=DIRECTOR_ID, now=NOW
+        )
+        self.assertEqual(self.first_task(reviewed, "research_scope")["status"], "review")
+        self.assertEqual(self.first_task(completed, "research_scope")["status"], "completed")
 
     def test_review_task_can_supply_real_evidence_then_must_be_reviewed_again(self) -> None:
         plan, task = self.activate_task()
@@ -626,6 +694,19 @@ class TaskAllocationTests(unittest.TestCase):
             with urlopen(review_request, timeout=3) as response:
                 reviewed = json.loads(response.read())
             self.assertEqual(self.first_task(reviewed, "research_scope")["status"], "review")
+            complete_request = Request(
+                f"{base}/api/allocation-tasks/{task['task_id']}/complete",
+                data=json.dumps({"director_id": DIRECTOR_ID}).encode(),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urlopen(complete_request, timeout=3) as response:
+                completed = json.loads(response.read())
+            self.assertEqual(
+                self.first_task(completed, "research_scope")["status"],
+                "completed",
+            )
+            self.assertIn("Director Accept & Complete", page)
             with urlopen(f"{base}/api/dashboard") as response:
                 issue_snapshot = json.loads(response.read())
             self.assertIn(issue["issue_id"], {item["issue_id"] for item in issue_snapshot["issues"]})
@@ -695,6 +776,43 @@ class TaskAllocationTests(unittest.TestCase):
         self.assertEqual(
             len(first_restart["audit_history"]),
             len(second_restart["audit_history"]),
+        )
+        self.assertTrue(self.allocation.verify_audit_chain())
+
+    def test_active_task_survives_restart_without_duplicate_activation(self) -> None:
+        plan = self.approve(self.create_plan())
+        task = self.first_task(plan, "research_scope")
+        active = self.allocation.start_task(
+            task["task_id"], actor_id=task["role_id"], now=NOW
+        )
+        self.assertEqual(self.first_task(active, "research_scope")["attempts"], 1)
+
+        self.allocation.close()
+        self.pipeline.close()
+        self.allocation = TaskAllocationEngine(
+            self.database, self.registry, {DIRECTOR_ID}
+        )
+        self.pipeline = ProjectPipeline(
+            self.database, {DIRECTOR_ID}, self.registry
+        )
+
+        persisted = self.allocation.get_plan(plan["plan_id"])
+        persisted_task = self.first_task(persisted, "research_scope")
+        self.assertEqual(persisted_task["status"], "active")
+        self.assertEqual(persisted_task["attempts"], 1)
+        with self.assertRaisesRegex(AllocationError, "Only ready tasks"):
+            self.allocation.start_task(
+                task["task_id"], actor_id=task["role_id"], now=NOW
+            )
+        refreshed = self.allocation.get_plan(plan["plan_id"])
+        self.assertEqual(self.first_task(refreshed, "research_scope")["attempts"], 1)
+        self.assertEqual(
+            sum(
+                event["event_type"] == "allocation_task_activated"
+                and event["object_id"] == task["task_id"]
+                for event in refreshed["audit_history"]
+            ),
+            1,
         )
         self.assertTrue(self.allocation.verify_audit_chain())
 
