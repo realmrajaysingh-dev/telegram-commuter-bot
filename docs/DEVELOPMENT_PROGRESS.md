@@ -398,3 +398,33 @@ body binding, and duplicate request IDs using only offline fixtures. Session
 remote connectivity remains **BLOCKED** pending provider-backed
 authentication, durable replay/revocation stores, a secure hosted control
 plane and artifact channel, and separate approval for operational integration.
+
+## Session 08 — Remote integration readiness and deployment feasibility
+
+**Foundation verification:** started on clean branch
+`docs/autonomous-studio-foundation` at
+`6fefe2a93899b820f3b52c4e27218fe7b28f121a`. Confirmed the prior Studio
+allocation/approval/evidence and Observer controls, SQLite worker queue,
+capability connector, offline handoff/notebook, artifact verification,
+recovery/audit, and Session 07.9 trust contracts. No duplicate functionality
+or essential offline code gap was found. The existing dashboard is explicitly
+loopback-only; its local Director/worker IDs are not authentication. Existing
+database records and audit history were not accessed for mutation.
+
+This batch is documentation-only. `docs/GPU_WORKER_ARCHITECTURE.md` now
+defines the integration component boundaries, Hostinger Business compatibility
+limits to verify, frontend/backend/database/artifact/GPU separation, a
+zero-cost-first topology, future manual connection checklist, rollback plan,
+and blockers before remote connection. No deployment provider is approved,
+and Hostinger capabilities are not asserted without plan-specific verification.
+Colab is documented as optional ephemeral compute, not an always-on server.
+No code, database, production bot, website, GitHub Actions, DNS, credentials,
+external services, or dependencies were changed.
+
+**Verification:** documentation review and `git diff --check` passed.
+`PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -v`
+completed with **149 tests passing**, no failures, and no reported warnings.
+Session 08 readiness: **PASS** for offline readiness assessment and
+deployment planning; **BLOCKED** for real connectivity/deployment pending
+identity, transport, storage, hosting, operational, privacy, and explicit
+approval prerequisites.

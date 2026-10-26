@@ -660,3 +660,143 @@ The focused trust and worker-contract tests passed (**25 tests**). Session
 07.9 readiness: **PASS** for the requested offline architecture and
 contract-validation scope; deployment and remote worker connectivity remain
 **BLOCKED** pending the prerequisites above.
+
+## Session 08 — Remote integration readiness and deployment feasibility
+
+### Foundation audit and readiness
+
+Session 08 starts from clean branch `docs/autonomous-studio-foundation` at
+Session 07.9 commit `6fefe2a93899b820f3b52c4e27218fe7b28f121a`. The existing
+Studio allocation/Director approval, persisted task evidence, Observer
+disagreement and resolution, SQLite job queue, worker connector/capability
+matching, lease/heartbeat/retry/recovery, output byte/hash verification,
+offline package and notebook scaffold, trust request/claim contracts, and
+sanitized dashboard diagnostic were inspected and retained. No second queue,
+approval system, or authentication implementation is needed for this
+readiness/documentation batch.
+
+The current dashboard is a Python `ThreadingHTTPServer` deliberately bound to
+loopback only; its HTML calls local Studio APIs. Its Director IDs are prototype
+assertions, not credentials. It is not a static frontend/API pair and must not
+be exposed by changing the bind address, reverse-proxying it publicly, or
+opening a tunnel. The existing worker contracts are not called by a network
+adapter. Therefore no small safe code change makes remote connectivity ready:
+real authentication, hosting, storage, migrations, operations, and a separate
+security review are material prerequisites. Session 08 makes no code or
+database changes.
+
+### Component placement and hosting compatibility
+
+Keep these roles separate; hosting a website does not imply that the same
+account safely provides an always-on Python API, durable database, private
+artifact storage, or GPU compute.
+
+| Component | Current state / future placement | Hostinger Business assessment |
+|---|---|---|
+| Public website/static frontend | Existing production website remains unchanged. A future, separately designed static UI could be served by any approved static/web host. | May be suitable for static files subject to the exact account, domain, TLS, and access-control features; verify the current plan. Static hosting alone cannot run this Studio dashboard API. |
+| Studio dashboard/control plane | Current loopback-only Python dashboard and embedded HTML, using local SQLite. Future remote control plane requires a separately hardened Python service, real Director/worker authentication, HTTPS, durable transactional state, and monitoring. | Do not assume Business shared hosting supports persistent Python processes, custom application servers, required inbound routing, or safe multi-process database semantics. Verify written plan capabilities and provider policy; do not deploy this dashboard there as-is. |
+| Job/audit database | Current local SQLite database is authoritative only for the local prototype. A future hosted control plane needs tested backups, migrations, restore drills, concurrency and integrity controls; use a managed transactional database if multiple service instances or workers are involved. | Shared local files/SQLite locking, backup, persistence, and restore guarantees are unverified and should not be treated as a distributed queue. |
+| Artifact store | Current local controlled storage verifies actual bytes and SHA-256. Future transfer requires private per-job staging/quarantine, size limits, ownership checks, and atomic promotion. | Web-root files are not an acceptable private artifact store. Any account-provided private storage and access controls must be confirmed; do not use public links. |
+| GPU computation | No real compute currently. A future manually launched Colab notebook would receive only one explicitly authorized package and return a bounded result package. | Hostinger Business shared hosting is not a GPU runtime. GPU work requires a separate runtime/provider; Colab availability and persistence are not guaranteed. |
+| Identity, TLS, secrets, and replay/revocation state | Not implemented. Must be provided by a trusted identity/security boundary and integrated with queue mutations before connection. | Plan-level TLS or website login does not substitute for worker identity, job-scoped credentials, atomic replay prevention, secret management, or audit integration. Availability is unverified. |
+
+### Zero-cost-first topology recommendation
+
+**Now, at zero cost:** keep the dashboard and SQLite database on a trusted
+local machine, loopback-only. Continue synthetic tests and the existing manual
+offline handoff only. Use no real credentials or private production media.
+Colab remains disconnected; its mock profile is just a compatibility fixture.
+The static production site and scheduled bot are separate and are not a
+control plane.
+
+**Only after a separately approved deployment milestone:** keep any cleared,
+static presentation layer on an approved static host; place the authenticated
+Studio API, durable transactional job/audit database, private artifact
+transfer/storage, secret/revocation service, and monitoring on an explicitly
+supported, maintained backend. A manually launched Colab worker should make
+outbound HTTPS requests only to that authenticated service, receive only
+short-lived single-job authority, and return outputs through bounded
+quarantine/verification. Never expose SQLite or the loopback dashboard
+directly, accept public worker callbacks, or rely on a notebook as a server.
+
+This is a target separation, not an approved provider or deployment design.
+Free tiers may sleep, impose quotas, require a payment method, change terms,
+or lack durable/private storage. If no option provides reliable security,
+backups, and availability without cost, retain local/manual operation rather
+than imply a zero-cost production guarantee.
+
+### Manual connection checklist — future use only
+
+Do not begin this checklist without separate Director/security approval and
+an isolated staging environment.
+
+1. Inventory and approve data classifications, rights/consent, retention,
+   worker operations, output limits, and acceptable provider processing.
+2. Verify current Hostinger plan features and terms in writing; separately
+   test the selected backend's Python runtime, inbound HTTPS/TLS, process
+   lifetime, outbound access, database/backup behavior, secret injection,
+   access logs, and support boundaries. Verify static hosting independently.
+3. Implement provider-backed Director and worker authentication. Allowlist
+   issuer/audience/algorithms and map verified identities to approved worker
+   records; implement per-job/per-lease scopes, credential revocation and
+   rotation, durable replay protection, and transactionally consistent audit
+   acceptance. Do not promote the existing local IDs or notebook assertions
+   into authentication.
+4. Define and test additive schema migrations, restore/backup drills,
+   filesystem/object-store permissions, retention/deletion, rate/body limits,
+   monitoring, incident ownership, and rollback/recovery.
+5. Deploy an isolated staging control plane with no production bot, website,
+   schedules, or real media. Require valid HTTPS and certificate validation;
+   verify redirects cannot forward credentials and deny-by-default access.
+6. Run adversarial tests for cross-job/project access, expired/revoked
+   credentials, replay/concurrency races, lease expiry, retry limits,
+   disconnects, malformed/oversized packages, artifact tampering, and
+   database restart/restore. Verify all accepted output bytes before
+   persistence.
+7. Test one non-sensitive synthetic job end-to-end: Director authorization,
+   atomic lease, short-lived job-bound credential, worker registration,
+   heartbeat, verified input transfer, bounded result transfer, audit chain,
+   and task remaining in review until existing evidence/Observer/Director
+   completion gates pass.
+8. Review logs, metrics, audit records, backup contents, and credential
+   redaction. Confirm revocation and emergency stop work before any restricted
+   data or real workload is considered.
+9. Obtain a second security and operations review and explicit go/no-go
+   approval before any real connection. Deployment, DNS, production bot,
+   website, Actions, publishing, and public access remain separate changes.
+
+### Rollback plan — future use only
+
+1. Stop issuing remote credentials and new worker leases; disable the remote
+   adapter/control-plane route at the service boundary.
+2. Revoke affected worker credentials, keys, and any transfer capabilities.
+   Mark workers offline/unavailable. Do not trust an in-flight result.
+3. Preserve the SQLite/database snapshot, immutable audit records, and
+   quarantined artifacts for incident review; do not reset, truncate, or
+   restore over the only copy.
+4. Use the existing lease-expiry/recovery and Director retry/reauthorization
+   rules to reconcile active jobs. Reject stale results and re-verify
+   persisted artifacts. Do not mark Studio tasks complete from worker
+   success.
+5. Restore the last known-good application/configuration and database using a
+   tested migration-compatible backup. Keep the service offline if state or
+   audit integrity is uncertain.
+6. Document the incident and verify local dashboard, job/audit integrity,
+   evidence, Observer and task-review controls before requesting another
+   approval. Do not resume connectivity automatically.
+
+### Readiness decision
+
+The architecture and offline contracts are sufficient to guide a later
+implementation, but Session 08 does not authorize a live integration. Before
+connection, the blocking items are provider-backed identity verification,
+Director authentication, durable credential revocation and replay handling,
+secure private artifact transfer, hosted database migration/backup/restore,
+verified hosting capabilities, operational monitoring/incident response,
+privacy and rights approvals, and separate staging and deployment reviews.
+Session 08 readiness: **PASS** for offline architecture and feasibility
+planning; **BLOCKED** for real remote connectivity or deployment.
+
+**Verification:** documentation review and `git diff --check` passed.
+`PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -v`
+completed with **149 tests passing**, no failures, and no reported warnings.
