@@ -28,6 +28,7 @@ from .worker_handoff import (
     export_job_package,
     import_result_package,
 )
+from .workflows import WorkflowEngine, WorkflowError
 
 
 _ISSUE_ID_PATTERN = re.compile(r"^[a-f0-9]{32}$")
@@ -122,6 +123,10 @@ _DASHBOARD_HTML = """<!doctype html>
             <label>Project ID (optional; generated if blank)<input name="project_id" maxlength="64"></label>
             <label>Title<input name="title" maxlength="200" required></label>
             <label>Project type<input name="project_type" maxlength="80" placeholder="article, video, campaign…" required></label>
+            <label>Workflow<select name="workflow_id" id="project-workflow" required>
+              <option value="ai_daily_desk">AI Daily Desk · private drafts only</option>
+              <option value="human_creative_desk">Human Creative Desk · three human gates</option>
+            </select></label>
             <label>Department<select name="department_id" id="project-department" required></select></label>
             <label>Digital employee role<select name="role_id" id="project-role" required></select></label>
             <label>Language tag<input name="language" value="en" maxlength="35" required></label>
@@ -142,6 +147,44 @@ _DASHBOARD_HTML = """<!doctype html>
           <div id="project-detail" class="project-detail"><span class="muted">Select a project to inspect its status, links, and history.</span></div>
         </section>
       </div>
+    </section>
+    <br>
+    <section class="panel" aria-label="Dual workflow office">
+      <h2>Shared Office · Independent Workflows <span class="demo">Local policy only · publishing disabled</span></h2>
+      <p class="notice">Workflow routing does not execute AI agents or external work. Daily Desk discovery is private planning only. Creative projects require all three human gates. A blocked lane does not pause the other.</p>
+      <div id="workflow-overview" class="project-grid"><div class="empty">Loading workflow status…</div></div>
+      <details>
+        <summary>Daily Desk · standing policy and schedule controls</summary>
+        <form id="workflow-policy-form" class="project-form">
+          <label>Policy ID<input name="policy_id" maxlength="64" required></label>
+          <label>Categories (comma-separated)<input name="categories" required></label>
+          <label>Content types (comma-separated)<input name="content_types" required></label>
+          <label>Source policies (comma-separated)<input name="source_policies" required></label>
+          <label>Allowed channels (comma-separated)<input name="allowed_channels" required></label>
+          <label>Prohibited topics (comma-separated)<input name="prohibited_topics" required></label>
+          <label>Routine publish rules JSON<textarea name="routine_publish_rules">[]</textarea></label>
+          <button type="submit">Create Draft Policy</button>
+          <span id="workflow-policy-message" class="muted"></span>
+        </form>
+        <div class="project-actions">
+          <input id="workflow-approve-policy-id" placeholder="Policy ID">
+          <input id="workflow-approve-policy-version" type="number" min="1" placeholder="Version">
+          <button id="workflow-approve-policy" type="button">Approve Policy Version</button>
+        </div>
+        <form id="workflow-schedule-form" class="project-form">
+          <label>Schedule ID<input name="schedule_id" maxlength="64" required></label>
+          <label>Approved policy ID<input name="policy_id" maxlength="64" required></label>
+          <label>Category<input name="category" maxlength="128" required></label>
+          <label>Content type<input name="content_type" maxlength="128" required></label>
+          <label>Recurrence<select name="recurrence"><option>daily</option><option>weekly</option></select></label>
+          <label>First due time<input name="next_due_at" type="datetime-local" required></label>
+          <button type="submit">Create Schedule</button>
+          <span id="workflow-schedule-message" class="muted"></span>
+        </form>
+      </details>
+      <button id="workflow-scheduler-tick" type="button">Evaluate Due Daily Schedules</button>
+      <label><input id="workflow-current-story-available" type="checkbox" checked> Current-story availability was explicitly confirmed</label>
+      <span id="workflow-scheduler-message" class="muted">Scheduler creates persisted private planning intents only; it never publishes.</span>
     </section>
     <br>
     <section class="panel" aria-label="CEO work allocation">
@@ -282,6 +325,33 @@ async function refreshProjects() {
   }
   if(selectedProjectId) await showProject(selectedProjectId);
 }
+async function refreshWorkflowOverview() {
+  const data=await api("/api/workflows");
+  const panel=$("workflow-overview"); panel.replaceChildren();
+  for(const [workflowId,title] of [
+    ["ai_daily_desk","AI Daily Desk"],
+    ["human_creative_desk","Human Creative Desk"]
+  ]) {
+    const lane=data.workflows[workflowId];
+    const sectionNode=el("section",undefined,"project-detail");
+    sectionNode.append(el("h3",title));
+    sectionNode.append(el("p",`Projects: ${lane.projects} · Active: ${lane.active} · Blocked: ${lane.blocked}`,"status"));
+    if(workflowId==="ai_daily_desk") {
+      sectionNode.append(el("p",`Standing policy: ${lane.standing_policy} · Schedules: ${lane.schedule_count} · Blocked runs: ${lane.blocked_runs} · Missed runs: ${lane.missed_runs}`,"muted"));
+      sectionNode.append(el("p",lane.notice,"notice"));
+      for(const run of lane.runs.slice(0,5))
+        sectionNode.append(el("p",`${run.schedule_id} · ${run.status} · ${run.reason_code}`,"muted"));
+    } else {
+      sectionNode.append(el("p",`Required gates: ${lane.human_gates.join(" → ")}`,"muted"));
+      sectionNode.append(el("p",lane.notice,"notice"));
+    }
+    panel.append(sectionNode);
+  }
+  if(data.unassigned_projects.length)
+    panel.append(el("p",`Director routing required: ${data.unassigned_projects.join(", ")}`,"notice"));
+  if(!data.audit_chain_valid)
+    panel.append(el("p","Workflow audit chain verification failed; hold workflow actions.","notice"));
+}
 async function showProject(id) {
   try {
     const project=await api(`/api/projects/${encodeURIComponent(id)}`);
@@ -295,6 +365,40 @@ async function showProject(id) {
     panel.append(el("h3",project.title));
     panel.append(el("div",`${project.project_id} · ${project.project_type} · ${project.department_id} · ${project.role_id} · ${project.language} · ${project.priority}`,"muted"));
     panel.append(el("p",`Status: ${project.status}${project.is_demo?" · Synthetic demo record":""}`,"status"));
+    panel.append(el("p",`Workflow: ${project.workflow_id.replaceAll("_"," ")} · human release gates remain separate from task completion`,"notice"));
+    const route=el("select");
+    route.append(new Option("AI Daily Desk","ai_daily_desk"),new Option("Human Creative Desk","human_creative_desk"));
+    route.value=project.workflow_id==="unassigned"?"ai_daily_desk":project.workflow_id;
+    const routeButton=el("button","Route Project"); routeButton.type="button";
+    routeButton.addEventListener("click",async()=>{
+      const director_id=await requestDirector(); if(!director_id) return;
+      try {
+        await api(`/api/workflows/projects/${encodeURIComponent(id)}/route`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({director_id,workflow_id:route.value})});
+        await refreshWorkflowOverview(); await showProject(id);
+      } catch(error) { alert(`Workflow route not changed: ${error.message}`); }
+    });
+    const routing=el("div",undefined,"project-actions"); routing.append(route,routeButton); panel.append(routing);
+    if(project.workflow_id==="human_creative_desk") {
+      const gateStatus=project.creative_gates;
+      panel.append(el("p",`Creative gates · next required: ${gateStatus.next_required_gate} · release approved: ${gateStatus.release_approved}`,"notice"));
+      const gateForm=el("form",undefined,"project-form");
+      const gateSelect=el("select"); gateSelect.name="gate_id";
+      for(const [gateId,label] of [["scope_script","Gate 1 · Creative scope/script"],["rough_cut","Gate 2 · Rough cut"],["final_release","Gate 3 · Final release"]]) gateSelect.append(new Option(label,gateId));
+      const outcome=el("select"); outcome.name="outcome";
+      for(const value of ["pass","revise","block"]) outcome.append(new Option(value,value));
+      const hash=el("input"); hash.name="artifact_sha256"; hash.placeholder="Reviewed artifact SHA-256"; hash.required=true;
+      const evidence=el("input"); evidence.name="evidence_refs"; evidence.placeholder="Evidence references, comma-separated"; evidence.required=true;
+      const submit=el("button","Record Human Gate Decision"); submit.type="submit";
+      gateForm.append(gateSelect,outcome,hash,evidence,submit);
+      gateForm.addEventListener("submit",async event=>{
+        event.preventDefault(); const director_id=await requestDirector(); if(!director_id) return;
+        try {
+          await api(`/api/workflows/projects/${encodeURIComponent(id)}/gates/${gateSelect.value}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({director_id,outcome:outcome.value,artifact_sha256:hash.value,evidence_refs:evidence.value.split(",").map(value=>value.trim()).filter(Boolean)})});
+          await showProject(id); await refreshWorkflowOverview();
+        } catch(error) { alert(`Human gate decision rejected: ${error.message}`); }
+      });
+      panel.append(gateForm);
+    }
     if(project.allowed_transitions.length) {
       const status=el("select"); status.id="project-next-status";
       for(const value of project.allowed_transitions) status.append(new Option(value.replace("_"," "),value));
@@ -844,6 +948,46 @@ async function createProject(event) {
     await refreshProjects(); await showProject(project.project_id);
   } catch(error) { $("project-form-message").textContent=`Project not created: ${error.message}`; }
 }
+function commaList(value) { return value.split(",").map(item=>item.trim()).filter(Boolean); }
+$("workflow-policy-form").addEventListener("submit",async event=>{
+  event.preventDefault();
+  const director_id=await requestDirector(); if(!director_id) return;
+  const form=Object.fromEntries(new FormData(event.currentTarget).entries());
+  let routine_publish_rules;
+  try { routine_publish_rules=JSON.parse(form.routine_publish_rules); }
+  catch(error) { $("workflow-policy-message").textContent="Policy not saved: publish rules must be valid JSON."; return; }
+  const payload={
+    director_id,policy_id:form.policy_id,
+    categories:commaList(form.categories),content_types:commaList(form.content_types),
+    source_policies:commaList(form.source_policies),allowed_channels:commaList(form.allowed_channels),
+    prohibited_topics:commaList(form.prohibited_topics),routine_publish_rules
+  };
+  try {
+    const policy=await api("/api/workflows/policies",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+    $("workflow-policy-message").textContent=`Created ${policy.policy_id} v${policy.version} as draft; it grants no publish permission.`;
+    $("workflow-approve-policy-id").value=policy.policy_id; $("workflow-approve-policy-version").value=policy.version;
+    await refreshWorkflowOverview();
+  } catch(error) { $("workflow-policy-message").textContent=`Policy not created: ${error.message}`; }
+});
+$("workflow-approve-policy").addEventListener("click",async()=>{
+  const director_id=await requestDirector(); if(!director_id) return;
+  const policyId=$("workflow-approve-policy-id").value.trim();
+  const version=Number($("workflow-approve-policy-version").value);
+  try {
+    await api(`/api/workflows/policies/${encodeURIComponent(policyId)}/${version}/approve`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({director_id})});
+    await refreshWorkflowOverview();
+  } catch(error) { $("workflow-policy-message").textContent=`Policy approval rejected: ${error.message}`; }
+});
+$("workflow-schedule-form").addEventListener("submit",async event=>{
+  event.preventDefault();
+  const director_id=await requestDirector(); if(!director_id) return;
+  const form=Object.fromEntries(new FormData(event.currentTarget).entries());
+  try {
+    const schedule=await api("/api/workflows/schedules",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...form,director_id,next_due_at:new Date(form.next_due_at).toISOString()})});
+    $("workflow-schedule-message").textContent=`Created ${schedule.schedule_id}; due ${schedule.next_due_at}.`;
+    await refreshWorkflowOverview();
+  } catch(error) { $("workflow-schedule-message").textContent=`Schedule not created: ${error.message}`; }
+});
 async function changeProjectStatus(id,status,button) {
   const director_id=await requestDirector(); if(!director_id) return;
   button.disabled=true;
@@ -937,6 +1081,15 @@ $("recover-worker-jobs").addEventListener("click",async event=>{
   } catch(error) { alert(`Worker recovery failed: ${error.message}`); }
   finally { button.disabled=false; }
 });
+$("workflow-scheduler-tick").addEventListener("click",async event=>{
+  const button=event.currentTarget; button.disabled=true;
+  try {
+    const result=await api("/api/workflows/scheduler-tick",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({current_story_available:$("workflow-current-story-available").checked})});
+    $("workflow-scheduler-message").textContent=`Evaluated ${result.runs.length} due schedule(s); ${result.runs.filter(run=>run.status==="blocked").length} blocked. Private planning only; publication disabled.`;
+    await refreshWorkflowOverview();
+  } catch(error) { $("workflow-scheduler-message").textContent=`Scheduler evaluation failed: ${error.message}`; }
+  finally { button.disabled=false; }
+});
 $("worker-diagnostic").addEventListener("click",async event=>{
   const button=event.currentTarget; button.disabled=true;
   try {
@@ -957,6 +1110,7 @@ for(const id of ["project-status-filter","project-department-filter","project-ty
 refresh().catch(error=>$("inbox").replaceChildren(el("div",error.message,"notice")));
 refreshProjects().catch(error=>$("project-list").replaceChildren(el("div",error.message,"notice")));
 refreshWorkerJobs().catch(error=>$("worker-job-list").replaceChildren(el("div",error.message,"notice")));
+refreshWorkflowOverview().catch(error=>$("workflow-overview").replaceChildren(el("div",error.message,"notice")));
 </script>
 </body>
 </html>"""
@@ -990,17 +1144,21 @@ def create_dashboard_server(
         role_registry = registry or project_pipeline.registry
     owns_allocation = allocation is None
     task_allocation = allocation
+    workflow_engine: WorkflowEngine | None = None
     try:
         if task_allocation is None:
             task_allocation = TaskAllocationEngine(
                 engine.database, role_registry, engine.director_ids
             )
         worker_queue = WorkerJobQueue(task_allocation, engine.director_ids)
+        workflow_engine = WorkflowEngine(project_pipeline)
     except BaseException:
         if owns_pipeline:
             project_pipeline.close()
         if owns_allocation and task_allocation is not None:
             task_allocation.close()
+        if workflow_engine is not None:
+            workflow_engine.close()
         raise
 
     class DashboardHandler(BaseHTTPRequestHandler):
@@ -1077,6 +1235,25 @@ def create_dashboard_server(
                 except (AllocationError, WorkerQueueError) as exc:
                     self._send_json(400, {"error": str(exc)})
                 return
+            if parsed.path == "/api/workflows":
+                try:
+                    self._send_json(200, workflow_engine.snapshot())
+                except WorkflowError as exc:
+                    self._send_json(400, {"error": str(exc)})
+                return
+            workflow_gate_match = re.fullmatch(
+                r"/api/workflows/projects/([A-Za-z0-9][A-Za-z0-9._-]{0,63})/gates",
+                parsed.path,
+            )
+            if workflow_gate_match:
+                try:
+                    self._send_json(
+                        200,
+                        workflow_engine.creative_gate_status(workflow_gate_match.group(1)),
+                    )
+                except WorkflowError as exc:
+                    self._send_json(400, {"error": str(exc)})
+                return
             worker_job_match = re.fullmatch(
                 r"/api/worker-jobs/([A-Za-z0-9][A-Za-z0-9._-]{0,63})",
                 parsed.path,
@@ -1132,6 +1309,173 @@ def create_dashboard_server(
 
         def do_POST(self) -> None:
             path = urlparse(self.path).path
+            if path == "/api/workflows/policies":
+                try:
+                    payload = self._read_payload(max_bytes=_MAX_REQUEST_BYTES)
+                    required = {
+                        "director_id", "policy_id", "categories", "content_types",
+                        "source_policies", "allowed_channels", "prohibited_topics",
+                        "routine_publish_rules",
+                    }
+                    if set(payload) != required:
+                        raise WorkflowError("Editorial policy fields are missing or unsupported")
+                    result = workflow_engine.create_policy(**payload)
+                    self._send_json(201, result)
+                except WorkflowError as exc:
+                    self._send_json(400, {"error": str(exc)})
+                return
+            policy_approval = re.fullmatch(
+                r"/api/workflows/policies/([A-Za-z0-9][A-Za-z0-9._-]{0,63})/([1-9][0-9]*)/approve",
+                path,
+            )
+            if policy_approval:
+                try:
+                    payload = self._read_payload(max_bytes=_MAX_REQUEST_BYTES)
+                    if set(payload) != {"director_id"}:
+                        raise WorkflowError("Only Director ID is accepted for policy approval")
+                    result = workflow_engine.approve_policy(
+                        policy_approval.group(1), int(policy_approval.group(2)),
+                        director_id=payload["director_id"],
+                    )
+                    self._send_json(200, result)
+                except WorkflowError as exc:
+                    self._send_json(400, {"error": str(exc)})
+                return
+            if path == "/api/workflows/schedules":
+                try:
+                    payload = self._read_payload(max_bytes=_MAX_REQUEST_BYTES)
+                    allowed = {
+                        "director_id", "schedule_id", "policy_id", "category",
+                        "content_type", "recurrence", "next_due_at",
+                    }
+                    if set(payload) != allowed:
+                        raise WorkflowError("Schedule fields are missing or unsupported")
+                    payload["next_due_at"] = parse_datetime(payload["next_due_at"])
+                    self._send_json(201, workflow_engine.create_daily_schedule(**payload))
+                except WorkflowError as exc:
+                    self._send_json(400, {"error": str(exc)})
+                except (ValueError, TypeError) as exc:
+                    self._send_json(400, {"error": str(exc)})
+                return
+            if path == "/api/workflows/assignments":
+                try:
+                    payload = self._read_payload(max_bytes=_MAX_REQUEST_BYTES)
+                    allowed = {
+                        "director_id", "workflow_id", "title", "starts_at", "expires_at",
+                        "policy_id", "project_id", "assignment_id",
+                    }
+                    if set(payload) - allowed or not {
+                        "director_id", "workflow_id", "title", "starts_at",
+                        "expires_at", "policy_id",
+                    } <= set(payload):
+                        raise WorkflowError("Assignment fields are missing or unsupported")
+                    payload["starts_at"] = parse_datetime(payload["starts_at"])
+                    payload["expires_at"] = parse_datetime(payload["expires_at"])
+                    self._send_json(201, workflow_engine.create_assignment(**payload))
+                except WorkflowError as exc:
+                    self._send_json(400, {"error": str(exc)})
+                except (ValueError, TypeError) as exc:
+                    self._send_json(400, {"error": str(exc)})
+                return
+            assignment_extend = re.fullmatch(
+                r"/api/workflows/assignments/([A-Za-z0-9][A-Za-z0-9._-]{0,63})/extend",
+                path,
+            )
+            if assignment_extend:
+                try:
+                    payload = self._read_payload(max_bytes=_MAX_REQUEST_BYTES)
+                    if set(payload) != {"director_id", "new_expiry"}:
+                        raise WorkflowError("Director ID and new expiry are required")
+                    self._send_json(
+                        200,
+                        workflow_engine.extend_assignment(
+                            assignment_extend.group(1),
+                            director_id=payload["director_id"],
+                            new_expiry=parse_datetime(payload["new_expiry"]),
+                        ),
+                    )
+                except WorkflowError as exc:
+                    self._send_json(400, {"error": str(exc)})
+                except (ValueError, TypeError) as exc:
+                    self._send_json(400, {"error": str(exc)})
+                return
+            budget_match = re.fullmatch(
+                r"/api/workflows/(ai_daily_desk|human_creative_desk)/budget",
+                path,
+            )
+            if budget_match:
+                try:
+                    payload = self._read_payload(max_bytes=_MAX_REQUEST_BYTES)
+                    if set(payload) != {
+                        "director_id", "max_active_projects", "max_daily_items",
+                        "max_runtime_seconds", "max_storage_bytes",
+                    }:
+                        raise WorkflowError("Workflow budget fields are missing or unsupported")
+                    self._send_json(
+                        200,
+                        workflow_engine.set_workflow_budget(
+                            budget_match.group(1), **payload
+                        ),
+                    )
+                except WorkflowError as exc:
+                    self._send_json(400, {"error": str(exc)})
+                return
+            if path == "/api/workflows/scheduler-tick":
+                try:
+                    payload = self._read_payload(max_bytes=_MAX_REQUEST_BYTES)
+                    if set(payload) != {"current_story_available"}:
+                        raise WorkflowError("Only explicit story availability is accepted")
+                    runs = workflow_engine.run_due_schedules(
+                        current_story_available=payload["current_story_available"]
+                    )
+                    self._send_json(200, {"runs": runs, "publication_enabled": False})
+                except WorkflowError as exc:
+                    self._send_json(400, {"error": str(exc)})
+                return
+            route_match = re.fullmatch(
+                r"/api/workflows/projects/([A-Za-z0-9][A-Za-z0-9._-]{0,63})/route",
+                path,
+            )
+            if route_match:
+                try:
+                    payload = self._read_payload(max_bytes=_MAX_REQUEST_BYTES)
+                    if set(payload) != {"director_id", "workflow_id"}:
+                        raise WorkflowError("Director ID and workflow ID are required")
+                    self._send_json(
+                        200,
+                        workflow_engine.route_project(
+                            route_match.group(1), payload["workflow_id"],
+                            director_id=payload["director_id"],
+                        ),
+                    )
+                except WorkflowError as exc:
+                    self._send_json(400, {"error": str(exc)})
+                return
+            gate_match = re.fullmatch(
+                r"/api/workflows/projects/([A-Za-z0-9][A-Za-z0-9._-]{0,63})/"
+                r"gates/(scope_script|rough_cut|final_release)",
+                path,
+            )
+            if gate_match:
+                try:
+                    payload = self._read_payload(max_bytes=_MAX_REQUEST_BYTES)
+                    if set(payload) != {
+                        "director_id", "outcome", "artifact_sha256", "evidence_refs"
+                    } or not isinstance(payload["evidence_refs"], list):
+                        raise WorkflowError("Human gate fields are missing or invalid")
+                    self._send_json(
+                        201,
+                        workflow_engine.record_creative_gate(
+                            gate_match.group(1), gate_match.group(2),
+                            director_id=payload["director_id"],
+                            outcome=payload["outcome"],
+                            artifact_sha256=payload["artifact_sha256"],
+                            evidence_refs=payload["evidence_refs"],
+                        ),
+                    )
+                except WorkflowError as exc:
+                    self._send_json(400, {"error": str(exc)})
+                return
             if (
                 path == "/api/workers"
                 or path == "/api/worker-jobs/recover"
