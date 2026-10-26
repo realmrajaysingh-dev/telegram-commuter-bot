@@ -20,6 +20,28 @@ _ISSUE_ID_PATTERN = re.compile(r"^[a-f0-9]{32}$")
 _MAX_REQUEST_BYTES = 8_192
 
 
+class _DashboardHTTPServer(ThreadingHTTPServer):
+    def __init__(
+        self,
+        address: tuple[str, int],
+        handler: type[BaseHTTPRequestHandler],
+        *,
+        owned_resources: tuple[Any, ...] = (),
+    ) -> None:
+        self._owned_resources = owned_resources
+        self._resources_closed = False
+        super().__init__(address, handler)
+
+    def server_close(self) -> None:
+        try:
+            super().server_close()
+        finally:
+            if not self._resources_closed:
+                self._resources_closed = True
+                for resource in self._owned_resources:
+                    resource.close()
+
+
 _DASHBOARD_HTML = """<!doctype html>
 <html lang="en">
 <head>
@@ -340,6 +362,7 @@ def create_dashboard_server(
         raise ValueError("Dashboard host must be a loopback IP address") from exc
     if not loopback:
         raise ValueError("Dashboard host must be a loopback IP address")
+    owns_pipeline = pipeline is None
     project_pipeline = pipeline
     if project_pipeline is None:
         role_registry = registry or RoleRegistry.from_markdown(
@@ -535,4 +558,13 @@ def create_dashboard_server(
         def log_message(self, format: str, *args: Any) -> None:
             return
 
-    return ThreadingHTTPServer((host, port), DashboardHandler)
+    try:
+        return _DashboardHTTPServer(
+            (host, port),
+            DashboardHandler,
+            owned_resources=(project_pipeline,) if owns_pipeline else (),
+        )
+    except BaseException:
+        if owns_pipeline:
+            project_pipeline.close()
+        raise

@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import gc
 import json
 from pathlib import Path
+import sqlite3
 import tempfile
 import threading
 import unittest
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
+import warnings
 
 from studio.dashboard import create_dashboard_server
 from studio.issues import IssueEngine
@@ -297,6 +300,26 @@ class ProjectPipelineTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
             thread.join(timeout=2)
+
+    def test_dashboard_closes_pipeline_connection_it_creates(self) -> None:
+        with warnings.catch_warnings(record=True) as observed:
+            warnings.simplefilter("always", ResourceWarning)
+            server = create_dashboard_server(
+                self.issues, host="127.0.0.1", port=0
+            )
+            owned_pipeline = server._owned_resources[0]
+            server.server_close()
+            with self.assertRaises(sqlite3.ProgrammingError):
+                owned_pipeline.list_projects()
+            del owned_pipeline
+            del server
+            gc.collect()
+        resource_warnings = [
+            warning
+            for warning in observed
+            if issubclass(warning.category, ResourceWarning)
+        ]
+        self.assertEqual(resource_warnings, [])
 
 
 if __name__ == "__main__":
