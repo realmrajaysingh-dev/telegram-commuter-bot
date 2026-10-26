@@ -730,9 +730,12 @@ class TaskAllocationEngine:
 
         with self._lock, self._connection:
             existing = self._connection.execute(
-                "SELECT plan_id, request_hash FROM studio_task_plans WHERE project_id = ?",
+                "SELECT plan_id, request_hash, deadline_at FROM studio_task_plans WHERE project_id = ?",
                 (project_id,),
             ).fetchone()
+            if existing and deadline_at is None:
+                request_data["deadline_at"] = existing["deadline_at"]
+            request_hash = hashlib.sha256(_json(request_data).encode("utf-8")).hexdigest()
             if existing:
                 if existing["request_hash"] != request_hash:
                     raise AllocationError("A different task plan already exists for this project")

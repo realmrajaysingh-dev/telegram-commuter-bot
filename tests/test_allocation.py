@@ -190,6 +190,24 @@ class TaskAllocationTests(unittest.TestCase):
             1,
         )
 
+    def test_default_deadline_plan_generation_is_idempotent_across_time(self) -> None:
+        project = self.create_project()
+        first = self.create_plan(project=project, deadline_at=None)
+        repeated = self.create_plan(
+            project=project,
+            deadline_at=None,
+            now=NOW + timedelta(days=1),
+        )
+        self.assertEqual(first["plan_id"], repeated["plan_id"])
+        self.assertEqual(first["deadline_at"], repeated["deadline_at"])
+        self.assertEqual(
+            self.allocation._connection.execute(
+                "SELECT COUNT(*) FROM studio_task_plans WHERE project_id=?",
+                (project["project_id"],),
+            ).fetchone()[0],
+            1,
+        )
+
     def test_plan_requires_explicit_director_approval_before_activation(self) -> None:
         plan = self.create_plan()
         task = self.first_task(plan)
@@ -615,6 +633,70 @@ class TaskAllocationTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
             thread.join(timeout=2)
+
+    def test_task_plan_and_evidence_survive_dashboard_restart(self) -> None:
+        project = self.create_project()
+        plan = self.approve(self.create_plan(project=project))
+        task = self.first_task(plan, "research_scope")
+        self.allocation.start_task(task["task_id"], actor_id=task["role_id"], now=NOW)
+        self.submit_artifact(
+            self.first_task(
+                self.allocation.get_plan(plan["plan_id"]), "research_scope"
+            ),
+            content="Restart persistence evidence.",
+        )
+        self.allocation.submit_task_for_review(
+            task["task_id"], actor_id=task["role_id"], now=NOW
+        )
+        self.assertTrue(self.allocation.verify_audit_chain())
+
+        self.allocation.close()
+        self.pipeline.close()
+        self.allocation = TaskAllocationEngine(
+            self.database, self.registry, {DIRECTOR_ID}
+        )
+        self.pipeline = ProjectPipeline(
+            self.database, {DIRECTOR_ID}, self.registry
+        )
+
+        def load_from_fresh_dashboard() -> dict:
+            server = create_dashboard_server(
+                self.issues, host="127.0.0.1", port=0
+            )
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                with urlopen(
+                    f"http://127.0.0.1:{server.server_port}/api/task-plans/{plan['plan_id']}",
+                    timeout=3,
+                ) as response:
+                    self.assertEqual(response.status, 200)
+                    return json.loads(response.read())
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+        first_restart = load_from_fresh_dashboard()
+        second_restart = load_from_fresh_dashboard()
+        for persisted in (first_restart, second_restart):
+            self.assertEqual(persisted["status"], "approved")
+            persisted_task = self.first_task(persisted, "research_scope")
+            self.assertEqual(persisted_task["status"], "review")
+            self.assertTrue(persisted_task["evidence_verified"])
+            self.assertEqual(
+                persisted_task["evidence_artifacts"][0]["sha256"],
+                hashlib.sha256(b"Restart persistence evidence.").hexdigest(),
+            )
+            self.assertIn(
+                "allocation_task_submitted_for_review",
+                {event["event_type"] for event in persisted["audit_history"]},
+            )
+        self.assertEqual(
+            len(first_restart["audit_history"]),
+            len(second_restart["audit_history"]),
+        )
+        self.assertTrue(self.allocation.verify_audit_chain())
 
 
 if __name__ == "__main__":
