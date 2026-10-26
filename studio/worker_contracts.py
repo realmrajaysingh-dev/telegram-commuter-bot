@@ -678,7 +678,12 @@ def recover_interrupted_job(record: JobRecord, *, now: datetime) -> JobRecord:
         updated = replace(record, state=JobState.FAILED, updated_at=now, last_error="retry_limit_exhausted")
         event = "job_failed"
     else:
-        updated = replace(record, state=JobState.QUEUED, updated_at=now)
+        updated = replace(
+            record,
+            state=JobState.QUEUED,
+            authorization=None,
+            updated_at=now,
+        )
         event = "job_requeued"
     return _event(
         updated, event, "local-recovery", now,
@@ -689,6 +694,8 @@ def recover_interrupted_job(record: JobRecord, *, now: datetime) -> JobRecord:
 def accept_result(record: JobRecord, result: JobResult, *, now: datetime) -> JobRecord:
     if not isinstance(result, JobResult):
         raise ContractError("Job result has an invalid schema")
+    if type(result.attempt) is not int or not isinstance(result.outputs, tuple):
+        raise ContractError("Job result attempt and output collection have invalid types")
     _aware(now, "Current time")
     if record.state is JobState.SUCCEEDED:
         raise ContractError("A result has already been accepted for this job")

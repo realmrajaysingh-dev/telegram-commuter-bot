@@ -169,6 +169,53 @@ references. Future Drive integration should:
 
 No Drive access or filesystem transfer is implemented in Session 07.1.
 
+## Session 07.2 — Local persistent queue integration
+
+`studio/worker_queue.py` now persists the version-1 contracts in additive
+SQLite tables beside the existing Studio project/task ledger:
+
+- `studio_worker_jobs` stores the manifest, project/task foreign keys,
+  idempotency key, current state, authorization, lease, result metadata,
+  attempt count, deadline, errors, and output-verification status.
+- `studio_worker_registrations` stores explicitly manual, synthetic worker
+  capability declarations and availability/expiry.
+- `studio_worker_job_events` stores immutable per-job hash-linked lifecycle
+  events; `studio_worker_job_outputs` stores immutable output metadata marked
+  `unverified_metadata`.
+
+Queue mutations run under SQLite `BEGIN IMMEDIATE` transactions. The
+idempotency key is unique; matching requests return the existing job, while
+different requests using that key fail. A job may be queued only for an active
+task in a Director-approved plan, and its input references must match the
+task's current verified local evidence IDs, sizes, and hashes. The Director
+who approved the plan must separately authorize execution against the
+manifest digest. A manually registered available worker must match workload,
+VRAM, and capability constraints before lease.
+
+The dashboard exposes persisted job counts/details, manual synthetic worker
+registration and availability, job creation from verified active task
+evidence, separate Director authorization, manual lease/start/heartbeat/failure
+actions, retry/cancel controls, and explicit expired-lease recovery. Starting a
+job only records the local simulated `running` state; it invokes no worker,
+FFmpeg, model, or external service. An accepted result moves the queue job to
+`succeeded`, but its output reference remains unverified metadata only and is
+never copied into Studio evidence or treated as a file. The existing evidence,
+Observer, and Director task-completion gates remain authoritative.
+
+Expired leases are changed to `interrupted` and then recovered to `queued` or
+`failed` in a transaction, with both audit events retained. Recovery clears
+the previous execution authorization, so another explicit Director action is
+required before re-leasing. Dashboard startup performs this recovery pass;
+the dashboard also offers a manual recovery action.
+
+This is still a local simulation, not an execution service. Output bytes and
+checksums are not read or recomputed; worker identity and Director identity
+are not authenticated; the queue has no network protocol, Drive adapter,
+cross-process worker, or production deployment. SQLite writes are transactional
+locally, but future operational integration still needs real artifact
+verification, credential management, authenticated worker handshakes, and
+additional operational safeguards.
+
 ## Verification and remaining gates
 
 Synthetic tests exercise schema and checksum/path validation, CPU/GPU
@@ -177,9 +224,15 @@ authorization, bounded leasing and heartbeat, unavailable/disconnected
 workers, lease expiry/recovery, stale and duplicate result rejection, output
 binding, and audit-chain linkage.
 
-Before operational integration, still required: durable SQLite schema and
-migrations, atomic leasing and result acceptance, real Director authentication,
-worker identity/registration handshake, Colab disconnect behavior in the
-actual runner, safe Drive credential/storage integration, byte-level artifact
-verification, cleanup/retention, cancellation acknowledgement for running
-workers, operational monitoring, and privacy/licensing/consent controls.
+Session 07.2 tests additionally cover approved-task eligibility, verified
+evidence association, Director authorization, idempotent persistence, worker
+availability, lease and heartbeat ownership, retry and audit behavior,
+restart/expiry recovery, duplicate/stale results, output metadata isolation,
+and dashboard endpoints.
+
+Before operational integration, still required: formal schema migration and
+backup policy, real Director authentication, worker identity/registration
+handshake, Colab disconnect behavior in an actual runner, safe Drive
+credential/storage integration, byte-level artifact verification,
+cleanup/retention, cancellation acknowledgement for running workers,
+operational monitoring, and privacy/licensing/consent controls.

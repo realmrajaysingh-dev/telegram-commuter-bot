@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import ipaddress
 import json
@@ -12,10 +13,12 @@ from urllib.parse import parse_qs, urlparse
 
 from .allocation import MAX_EVIDENCE_BYTES, AllocationError, TaskAllocationEngine
 from .issues import IssueEngine, IssueError, IssueNotFound
-from .models import ObserverAssessment, ObserverReport
+from .models import ObserverAssessment, ObserverReport, parse_datetime
 from .observer import ObserverError
 from .pipeline import ProjectError, ProjectNotFound, ProjectPipeline
 from .registry import RoleRegistry
+from .worker_queue import WorkerJobQueue, WorkerQueueError
+from .worker_contracts import WorkloadKind
 
 
 _ISSUE_ID_PATTERN = re.compile(r"^[a-f0-9]{32}$")
@@ -82,6 +85,10 @@ _DASHBOARD_HTML = """<!doctype html>
     .project-actions{display:flex;gap:7px;align-items:center;margin:8px 0}.project-actions select{max-width:180px}
     .project-links{font-size:.84rem}.project-links li{overflow-wrap:anywhere}
     .evidence-content{width:100%;min-height:110px}
+    .worker-grid{display:grid;grid-template-columns:minmax(250px,.7fr) minmax(340px,1.3fr);gap:12px}
+    .worker-jobs{display:grid;gap:8px;max-height:55vh;overflow:auto}
+    .worker-form{display:grid;gap:8px}.worker-form label{font-size:.82rem;color:#53637a}
+    .worker-job{padding:11px;background:#f5f7fa;border-radius:8px;font-size:.84rem}
     @media(max-width:760px){.project-counts{grid-template-columns:repeat(2,1fr)}.project-grid{grid-template-columns:1fr}}
     @media(max-width:760px){.counts{grid-template-columns:repeat(2,1fr)}.layout{grid-template-columns:1fr}.inbox{max-height:36vh}}
   </style>
@@ -153,6 +160,31 @@ _DASHBOARD_HTML = """<!doctype html>
         <section>
           <h2>Task Plan · Preview and Queue</h2>
           <div id="allocation-plan"><div class="empty">Select a project to view its persisted plan.</div></div>
+        </section>
+      </div>
+    </section>
+    <br>
+    <section class="panel" aria-label="Persistent worker queue">
+      <h2>Persistent Worker Queue <span class="demo">Manual local simulation</span></h2>
+      <p class="notice">No Colab, Drive, networking, or workload execution is connected. Successful worker results remain unverified metadata only; they are never files or Studio evidence automatically.</p>
+      <div id="worker-counts" class="project-counts"></div>
+      <button id="recover-worker-jobs" type="button">Recover expired leases</button>
+      <div class="worker-grid">
+        <section>
+          <h2>Register Simulated Worker</h2>
+          <form id="worker-registration-form" class="worker-form">
+            <label>Worker ID<input name="worker_id" maxlength="64" value="local-worker-01" required></label>
+            <label>Workload<select name="workload"><option value="gpu_inference">GPU inference · T4 metadata</option><option value="cpu_ffmpeg">CPU FFmpeg · metadata only</option></select></label>
+            <label>Availability<select name="state"><option value="available">Available</option><option value="gpu_unavailable">GPU unavailable</option><option value="disconnected">Disconnected</option><option value="registered">Registered, not available</option></select></label>
+            <label>Declared VRAM (MiB)<input name="vram_mb" type="number" min="0" max="262144" value="16000" required></label>
+            <label>Registration lifetime (hours)<input name="ttl_hours" type="number" min="1" max="12" value="4" required></label>
+            <button type="submit">Register Manual Worker</button>
+          </form>
+          <div id="worker-list" class="history"></div>
+        </section>
+        <section>
+          <h2>Jobs and Failures</h2>
+          <div id="worker-job-list" class="worker-jobs"><div class="empty">Loading persisted worker jobs…</div></div>
         </section>
       </div>
     </section>
@@ -344,6 +376,14 @@ function renderTaskPlan(plan) {
       item.append(start);
     }
     if(task.status==="active") {
+      if(task.evidence_verified&&plan.status==="approved") {
+        const workload=el("select"); workload.id=`worker-workload-${task.task_id}`;
+        workload.append(new Option("GPU inference · T4","gpu_inference"));
+        workload.append(new Option("CPU FFmpeg","cpu_ffmpeg"));
+        const queueJob=el("button","Queue Worker Job"); queueJob.type="button";
+        queueJob.addEventListener("click",()=>enqueueWorkerJob(task,workload.value,queueJob));
+        item.append(el("p","Worker jobs use only verified current task evidence as input. Queuing does not run the task.","muted"),workload,queueJob);
+      }
       const fail=el("button","Report Failure"); fail.type="button";
       fail.addEventListener("click",()=>reportAllocationTaskFailure(task,fail));
       if(task.evidence_verified) {
@@ -416,6 +456,127 @@ function renderTaskPlan(plan) {
   panel.append(observerSection);
   const audit=el("pre",JSON.stringify(plan.audit_history.map(event=>({event_type:event.event_type,object_id:event.object_id,actor_id:event.actor_id,event:JSON.parse(event.event_json),created_at:event.created_at})),null,2));
   panel.append(section("Allocation Audit History",audit));
+  refreshWorkerJobs().catch(error=>$("worker-job-list").replaceChildren(el("div",error.message,"notice")));
+}
+async function refreshWorkerJobs() {
+  const snapshot=await api("/api/worker-jobs");
+  const counts=$("worker-counts"); counts.replaceChildren();
+  for(const state of ["queued","leased","running","succeeded","failed","interrupted","cancelled"]) {
+    const tile=el("div",undefined,"project-count");
+    tile.append(el("strong",snapshot.counts[state]||0),el("span",state.replaceAll("_"," ")));
+    counts.append(tile);
+  }
+  const workers=$("worker-list"); workers.replaceChildren();
+  if(!snapshot.workers.length) workers.append(el("p","No manual workers registered.","muted"));
+  for(const worker of snapshot.workers) {
+    const row=el("div",undefined,"attempt");
+    row.append(el("strong",`${worker.worker_id} · ${worker.state}${worker.is_simulation?" · synthetic simulation":""}`));
+    row.append(el("p",`${worker.workloads.join(", ")} · VRAM ${worker.vram_mb} MiB · expires ${worker.expires_at}`,"muted"));
+    const state=el("select");
+    for(const value of ["available","registered","gpu_unavailable","disconnected"])
+      state.append(new Option(value.replaceAll("_"," "),value));
+    state.value=worker.state;
+    const update=el("button","Update availability"); update.type="button";
+    update.addEventListener("click",()=>updateWorkerState(worker.worker_id,state.value,update));
+    row.append(state,update); workers.append(row);
+  }
+  const list=$("worker-job-list"); list.replaceChildren();
+  if(!snapshot.jobs.length) list.append(el("div","No persisted worker jobs.","empty"));
+  for(const job of snapshot.jobs) {
+    const card=el("div",undefined,"worker-job");
+    card.append(el("strong",`${job.state.toUpperCase()} · ${job.workload} · ${job.job_id}`));
+    card.append(el("p",`${job.project_title} · ${job.task_title} (${job.task_status})${job.project_is_demo?" · Demo":""}`,"muted"));
+    card.append(el("p",`Attempt ${job.attempt_count}/${job.max_attempts} · ${job.resource_requirements.accelerator} · Deadline ${job.deadline_at}`));
+    if(job.authorization) card.append(el("p",`Authorized by ${job.authorization.director_id} until ${job.authorization.expires_at}`,"muted"));
+    if(job.lease) card.append(el("p",`Lease ${job.lease.lease_id} · ${job.lease.worker_id} · expires ${job.lease.expires_at}`,"muted"));
+    if(job.last_error) card.append(el("p",`Failure: ${job.last_error}`,"notice"));
+    if(job.outputs.length) card.append(el("p",`Output references: ${job.outputs.map(item=>`${item.artifact_id} (${item.verification_status})`).join(", ")}`,"notice"));
+    if(job.state==="queued"&&!job.authorization) {
+      const authorize=el("button","Director Authorize Execution"); authorize.type="button";
+      authorize.addEventListener("click",()=>authorizeWorkerJob(job,authorize)); card.append(authorize);
+    } else if(job.state==="queued"&&job.authorization) {
+      const candidates=snapshot.workers.filter(worker=>worker.state==="available"&&worker.workloads.includes(job.workload));
+      const worker=el("select");
+      for(const candidate of candidates) worker.append(new Option(`${candidate.worker_id} · ${candidate.vram_mb} MiB VRAM`,candidate.worker_id));
+      const renew=el("button","Renew Director Authorization"); renew.type="button";
+      renew.addEventListener("click",()=>authorizeWorkerJob(job,renew));
+      const lease=el("button","Lease · manual simulation"); lease.type="button";
+      lease.disabled=!candidates.length;
+      lease.addEventListener("click",()=>leaseWorkerJob(job,worker.value,lease));
+      const cancel=el("button","Director Cancel"); cancel.type="button";
+      cancel.addEventListener("click",()=>directorWorkerAction(job,"cancel",cancel));
+      card.append(worker,renew,lease,cancel);
+    } else if(job.state==="leased") {
+      const start=el("button","Mark Running · simulation only"); start.type="button";
+      start.addEventListener("click",()=>workerJobAction(job,"start",{worker_id:job.lease.worker_id},start));
+      card.append(start);
+    } else if(job.state==="running") {
+      const heartbeat=el("button","Record Heartbeat"); heartbeat.type="button";
+      heartbeat.addEventListener("click",()=>workerJobAction(job,"heartbeat",{worker_id:job.lease.worker_id,lease_seconds:300},heartbeat));
+      const fail=el("button","Report Simulated Failure"); fail.type="button";
+      fail.addEventListener("click",()=>reportWorkerFailure(job,fail));
+      card.append(heartbeat,fail);
+    } else if(job.state==="failed"&&job.attempt_count<job.max_attempts) {
+      const retry=el("button","Director Retry"); retry.type="button";
+      retry.addEventListener("click",()=>directorWorkerAction(job,"retry",retry));
+      card.append(retry);
+    } else if(["queued","interrupted"].includes(job.state)) {
+      const cancel=el("button","Director Cancel"); cancel.type="button";
+      cancel.addEventListener("click",()=>directorWorkerAction(job,"cancel",cancel));
+      card.append(cancel);
+    }
+    list.append(card);
+  }
+  list.append(el("p",snapshot.output_notice,"notice"));
+}
+async function workerJobAction(job,action,payload,button) {
+  await workerMutation(`/api/worker-jobs/${encodeURIComponent(job.job_id)}/${action}`,payload,button);
+}
+async function workerMutation(url,payload,button) {
+  button.disabled=true;
+  try {
+    await api(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+    await refreshWorkerJobs();
+  } catch(error) { alert(`Worker queue action failed: ${error.message}`); button.disabled=false; }
+}
+async function enqueueWorkerJob(task,workload,button) {
+  const director_id=await requestDirector(); if(!director_id) return;
+  await workerMutation(`/api/worker-jobs/queue/${encodeURIComponent(task.task_id)}`,{director_id,workload},button);
+}
+async function authorizeWorkerJob(job,button) {
+  const director_id=await requestDirector(); if(!director_id) return;
+  await workerJobAction(job,"authorize",{director_id},button);
+}
+async function leaseWorkerJob(job,worker_id,button) {
+  await workerJobAction(job,"lease",{worker_id,lease_seconds:300},button);
+}
+async function directorWorkerAction(job,action,button) {
+  const director_id=await requestDirector(); if(!director_id) return;
+  await workerJobAction(job,action,{director_id},button);
+}
+async function reportWorkerFailure(job,button) {
+  const error_code=window.prompt("Synthetic worker failure code (no sensitive details):");
+  if(!error_code) return;
+  await workerJobAction(job,"fail",{worker_id:job.lease.worker_id,error_code},button);
+}
+async function updateWorkerState(worker_id,state,button) {
+  const director_id=await requestDirector(); if(!director_id) return;
+  await workerMutation(`/api/workers/${encodeURIComponent(worker_id)}/state`,{director_id,state},button);
+}
+async function registerManualWorker(event) {
+  event.preventDefault();
+  const director_id=await requestDirector(); if(!director_id) return;
+  const form=new FormData($("worker-registration-form"));
+  const ttl_hours=Number(form.get("ttl_hours"));
+  const payload={
+    director_id,worker_id:form.get("worker_id"),workloads:[form.get("workload")],
+    state:form.get("state"),vram_mb:Number(form.get("vram_mb")),
+    operations:[],language_tags:[],model_ids:[],ttl_seconds:ttl_hours*3600
+  };
+  try {
+    await api("/api/workers",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+    await refreshWorkerJobs();
+  } catch(error) { alert(`Worker registration failed: ${error.message}`); }
 }
 async function generateTaskPlan() {
   const projectId=$("allocation-project").value;
@@ -600,6 +761,15 @@ async function fixIssue(id,button) {
 $("severity").addEventListener("change",()=>refresh().catch(error=>$("inbox").replaceChildren(el("div",error.message,"notice"))));
 $("department").addEventListener("change",()=>refresh().catch(error=>$("inbox").replaceChildren(el("div",error.message,"notice"))));
 $("project-form").addEventListener("submit",createProject);
+$("worker-registration-form").addEventListener("submit",registerManualWorker);
+$("recover-worker-jobs").addEventListener("click",async event=>{
+  const button=event.currentTarget; button.disabled=true;
+  try {
+    await api("/api/worker-jobs/recover",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
+    await refreshWorkerJobs();
+  } catch(error) { alert(`Worker recovery failed: ${error.message}`); }
+  finally { button.disabled=false; }
+});
 $("allocation-project").addEventListener("change",event=>{
   if(event.target.value) showProject(event.target.value);
   else refreshTaskPlan(null);
@@ -610,6 +780,7 @@ for(const id of ["project-status-filter","project-department-filter","project-ty
   $(id).addEventListener("change",()=>refreshProjects().catch(error=>$("project-list").replaceChildren(el("div",error.message,"notice"))));
 refresh().catch(error=>$("inbox").replaceChildren(el("div",error.message,"notice")));
 refreshProjects().catch(error=>$("project-list").replaceChildren(el("div",error.message,"notice")));
+refreshWorkerJobs().catch(error=>$("worker-job-list").replaceChildren(el("div",error.message,"notice")));
 </script>
 </body>
 </html>"""
@@ -648,9 +819,12 @@ def create_dashboard_server(
             task_allocation = TaskAllocationEngine(
                 engine.database, role_registry, engine.director_ids
             )
+        worker_queue = WorkerJobQueue(task_allocation, engine.director_ids)
     except BaseException:
         if owns_pipeline:
             project_pipeline.close()
+        if owns_allocation and task_allocation is not None:
+            task_allocation.close()
         raise
 
     class DashboardHandler(BaseHTTPRequestHandler):
@@ -715,6 +889,23 @@ def create_dashboard_server(
                 except AllocationError as exc:
                     self._send_json(400, {"error": str(exc)})
                 return
+            if parsed.path == "/api/worker-jobs":
+                try:
+                    self._send_json(200, worker_queue.snapshot())
+                except WorkerQueueError as exc:
+                    self._send_json(400, {"error": str(exc)})
+                return
+            worker_job_match = re.fullmatch(
+                r"/api/worker-jobs/([A-Za-z0-9][A-Za-z0-9._-]{0,63})",
+                parsed.path,
+            )
+            if worker_job_match:
+                try:
+                    self._send_json(200, worker_queue.get_job(worker_job_match.group(1)))
+                except WorkerQueueError as exc:
+                    status = 404 if "not found" in str(exc).lower() else 400
+                    self._send_json(status, {"error": str(exc)})
+                return
             plan_match = re.fullmatch(
                 r"/api/task-plans/([A-Za-z0-9][A-Za-z0-9._-]{0,63})",
                 parsed.path,
@@ -759,6 +950,25 @@ def create_dashboard_server(
 
         def do_POST(self) -> None:
             path = urlparse(self.path).path
+            if (
+                path == "/api/workers"
+                or path == "/api/worker-jobs/recover"
+                or re.fullmatch(
+                    r"/api/workers/[A-Za-z0-9][A-Za-z0-9._-]{0,63}/state",
+                    path,
+                )
+                or re.fullmatch(
+                    r"/api/worker-jobs/queue/[A-Za-z0-9][A-Za-z0-9._-]{0,63}",
+                    path,
+                )
+                or re.fullmatch(
+                    r"/api/worker-jobs/[A-Za-z0-9][A-Za-z0-9._-]{0,63}/"
+                    r"(authorize|lease|start|heartbeat|fail|result|retry|cancel)",
+                    path,
+                )
+            ):
+                self._handle_worker_action(path)
+                return
             if path == "/api/task-plans" or re.fullmatch(
                 r"/api/(?:task-plans/[A-Za-z0-9][A-Za-z0-9._-]{0,63}/(?:approve|extend|observer)|"
                 r"allocation-tasks/[A-Za-z0-9][A-Za-z0-9._-]{0,63}/(?:evidence|start|review|complete|fail|retry|director-review|assess|resolve-disagreement))",
@@ -947,6 +1157,150 @@ def create_dashboard_server(
             except (ValueError, TypeError, json.JSONDecodeError) as exc:
                 self._send_json(400, {"error": str(exc)})
 
+        def _handle_worker_action(self, path: str) -> None:
+            try:
+                payload = self._read_payload()
+                if path == "/api/workers":
+                    required = {
+                        "director_id", "worker_id", "workloads", "state",
+                        "vram_mb", "operations", "language_tags", "model_ids",
+                        "ttl_seconds",
+                    }
+                    if set(payload) != required:
+                        raise WorkerQueueError("Manual worker registration fields are invalid")
+                    ttl = payload["ttl_seconds"]
+                    if type(ttl) is not int or not 1 <= ttl <= 12 * 60 * 60:
+                        raise WorkerQueueError("Worker registration lifetime must be at most 12 hours")
+                    result = worker_queue.register_worker(
+                        director_id=payload["director_id"],
+                        worker_id=payload["worker_id"],
+                        workloads=tuple(payload["workloads"]),
+                        state=payload["state"],
+                        expires_at=datetime.now(timezone.utc) + timedelta(seconds=ttl),
+                        vram_mb=payload["vram_mb"],
+                        operations=tuple(payload["operations"]),
+                        language_tags=tuple(payload["language_tags"]),
+                        model_ids=tuple(payload["model_ids"]),
+                    )
+                elif path == "/api/worker-jobs/recover":
+                    if payload:
+                        raise WorkerQueueError("Worker recovery accepts no fields")
+                    result = {"recovered": worker_queue.recover_expired_leases()}
+                else:
+                    state_match = re.fullmatch(
+                        r"/api/workers/([A-Za-z0-9][A-Za-z0-9._-]{0,63})/state",
+                        path,
+                    )
+                    queue_match = re.fullmatch(
+                        r"/api/worker-jobs/queue/([A-Za-z0-9][A-Za-z0-9._-]{0,63})",
+                        path,
+                    )
+                    action_match = re.fullmatch(
+                        r"/api/worker-jobs/([A-Za-z0-9][A-Za-z0-9._-]{0,63})/"
+                        r"(authorize|lease|start|heartbeat|fail|result|retry|cancel)",
+                        path,
+                    )
+                    if state_match:
+                        if set(payload) != {"director_id", "state"}:
+                            raise WorkerQueueError("Director ID and worker state are required")
+                        result = worker_queue.set_worker_state(
+                            state_match.group(1),
+                            director_id=payload["director_id"],
+                            state=payload["state"],
+                        )
+                    elif queue_match:
+                        if set(payload) != {"director_id", "workload"}:
+                            raise WorkerQueueError("Director ID and workload are required")
+                        result = worker_queue.enqueue_task(
+                            queue_match.group(1),
+                            director_id=payload["director_id"],
+                            workload=payload["workload"],
+                            idempotency_key="",
+                        )
+                    elif action_match:
+                        job_id, operation = action_match.groups()
+                        if operation in {"authorize", "retry", "cancel"}:
+                            if set(payload) != {"director_id"}:
+                                raise WorkerQueueError("Only Director ID is accepted")
+                            if operation == "authorize":
+                                result = worker_queue.authorize(
+                                    job_id, director_id=payload["director_id"]
+                                )
+                            elif operation == "retry":
+                                result = worker_queue.retry(
+                                    job_id, director_id=payload["director_id"]
+                                )
+                            else:
+                                result = worker_queue.cancel(
+                                    job_id, director_id=payload["director_id"]
+                                )
+                        elif operation == "lease":
+                            if set(payload) - {"worker_id", "lease_seconds"} or "worker_id" not in payload:
+                                raise WorkerQueueError("Worker ID and optional lease duration are required")
+                            result = worker_queue.lease(
+                                job_id, worker_id=payload["worker_id"],
+                                lease_seconds=payload.get("lease_seconds", 300),
+                            )
+                        elif operation == "start":
+                            if set(payload) != {"worker_id"}:
+                                raise WorkerQueueError("Only Worker ID is accepted")
+                            result = worker_queue.start(
+                                job_id, worker_id=payload["worker_id"]
+                            )
+                        elif operation == "heartbeat":
+                            if set(payload) - {"worker_id", "lease_seconds"} or "worker_id" not in payload:
+                                raise WorkerQueueError("Worker ID and optional lease duration are required")
+                            result = worker_queue.heartbeat(
+                                job_id, worker_id=payload["worker_id"],
+                                lease_seconds=payload.get("lease_seconds", 300),
+                            )
+                        elif operation == "fail":
+                            if set(payload) != {"worker_id", "error_code"}:
+                                raise WorkerQueueError("Worker ID and failure code are required")
+                            result = worker_queue.fail(
+                                job_id, worker_id=payload["worker_id"],
+                                error_code=payload["error_code"],
+                            )
+                        else:
+                            required = {"worker_id", "lease_id", "attempt", "outputs"}
+                            allowed = required | {"result_id", "completed_at"}
+                            if set(payload) - allowed or required - set(payload):
+                                raise WorkerQueueError("Worker result fields are missing or unsupported")
+                            output_fields = {
+                                "artifact_id", "backend", "key", "sha256",
+                                "size_bytes", "media_type",
+                            }
+                            if not isinstance(payload["outputs"], list) or any(
+                                not isinstance(output, dict)
+                                or set(output) != output_fields
+                                for output in payload["outputs"]
+                            ):
+                                raise WorkerQueueError("Every output reference must have the exact declared metadata fields")
+                            if type(payload["attempt"]) is not int:
+                                raise WorkerQueueError("Worker result attempt must be an integer")
+                            completed_at = (
+                                parse_datetime(payload["completed_at"])
+                                if "completed_at" in payload
+                                else None
+                            )
+                            result = worker_queue.submit_result(
+                                job_id,
+                                worker_id=payload["worker_id"],
+                                lease_id=payload["lease_id"],
+                                attempt=payload["attempt"],
+                                outputs=tuple(payload["outputs"]),
+                                result_id=payload.get("result_id"),
+                                completed_at=completed_at,
+                            )
+                    else:
+                        self._send_json(404, {"error": "Not found"})
+                        return
+                self._send_json(200 if path != "/api/workers" else 201, result)
+            except WorkerQueueError as exc:
+                self._send_json(400, {"error": str(exc)})
+            except (ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
+                self._send_json(400, {"error": str(exc)})
+
         def _read_payload(self, *, max_bytes: int = _MAX_REQUEST_BYTES) -> dict[str, Any]:
             length = int(self.headers.get("Content-Length", "0"))
             if length <= 0 or length > max_bytes:
@@ -1015,6 +1369,7 @@ def create_dashboard_server(
                 for resource, owned in (
                     (project_pipeline, owns_pipeline),
                     (task_allocation, owns_allocation),
+                    (worker_queue, True),
                 )
                 if owned
             ),
@@ -1024,4 +1379,5 @@ def create_dashboard_server(
             project_pipeline.close()
         if owns_allocation:
             task_allocation.close()
+        worker_queue.close()
         raise

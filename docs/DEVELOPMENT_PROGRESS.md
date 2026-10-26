@@ -163,3 +163,17 @@ No SQLite worker/job tables, Colab notebook or connection, external networking, 
 **Verification:** **108 tests passed** using `python -m unittest discover -s tests -v`; no failures or warnings.
 
 **Readiness:** **PASS** for the requested architecture and offline-contract scope only. Operational worker readiness remains **BLOCKED** pending durable/atomic SQLite integration, authenticated Director and worker identity, real artifact verification and safe shared storage, and a separately approved manual Colab adapter.
+
+## Session 07.2 — Persistent Local Worker Queue
+
+Reused the Session 07.1 versioned `JobManifest`, lifecycle, lease, worker capability, artifact-reference, and result contracts, along with the existing project/task pipeline, Director-approved allocation plan, active-task check, verified local evidence, and audit conventions. Added `studio/worker_queue.py` as an additive SQLite queue; no competing task queue or approval system was introduced.
+
+Jobs persist task/project linkage, manifest, idempotency key, state, attempts, errors, Director authorization, lease/heartbeat metadata, result metadata, and timestamps. SQLite immediate transactions serialize queue mutations. A manual simulated worker registration is bounded and workload/capability checked for leasing. Execution authorization is separately recorded by the approving Director and bound to the canonical manifest digest. Expired lease recovery is persisted on queue initialization and can be triggered manually; the old attempt is audited as interrupted, requeued or failed, and requires fresh authorization. Result acceptance checks current lease and attempt and rejects duplicate/stale results. Output references are immutable and explicitly remain unverified metadata; they are not files or task evidence.
+
+The existing local dashboard now displays persisted worker job counts/details, manual worker availability, and simulated queue/authorize/lease/start/heartbeat/failure/retry/cancel/recovery actions. These actions only update local records. No worker, model, FFmpeg, Colab, Drive, network API, artifact creation, or publishing is connected. Existing task Observer, artifact evidence, and Director completion gates remain unchanged.
+
+**Verification:** focused worker queue and worker contract tests pass (30 tests). Python compilation, embedded dashboard JavaScript syntax, and whitespace validation pass. The final complete suite passed: **121 tests**, with no failures or warnings.
+
+**Limitations:** Director and worker IDs are configured/local assertions, not authenticated identities. Synthetic worker registration does not establish a live worker. Worker results provide metadata only; output bytes and checksums are not verified. There is no Colab/Drive connection, formal schema migration/backup policy, or operational job execution.
+
+**Readiness:** **PASS** for the requested local persistent queue and simulated dashboard integration. Operational worker execution remains **BLOCKED** until identity authentication, actual workers, byte-level output verification, and approved storage integration are implemented in a separately authorized batch.
