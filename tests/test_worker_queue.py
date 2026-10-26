@@ -20,6 +20,10 @@ from studio.pipeline import ProjectPipeline
 from studio.registry import RoleRegistry
 from studio.worker_contracts import JobState
 from studio.worker_queue import WorkerJobQueue, WorkerQueueError
+from studio.worker_connector import (
+    match_job_to_worker,
+    offline_colab_t4_profile,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -181,9 +185,94 @@ class WorkerJobQueueTests(unittest.TestCase):
         snapshot = self.queue.snapshot()
         self.assertEqual(persisted["state"], "queued")
         self.assertEqual(snapshot["workers"][0]["worker_id"], "simulated-worker")
+        self.assertEqual(snapshot["workers"][0]["cpu_cores"], 2)
+        self.assertEqual(snapshot["workers"][0]["memory_mb"], 8192)
         self.assertEqual(snapshot["available_worker_count"], 1)
         self.assertEqual(len(persisted["audit_events"]), 1)
         self.assertTrue(self.queue.verify_audit_chain(job["job_id"]))
+
+    def test_capability_matching_keeps_unavailable_and_mock_workers_unleaseable(self) -> None:
+        job = self.enqueue()
+        self.register_worker()
+        snapshot = self.queue.snapshot()
+        matching = next(
+            item for item in snapshot["queue_compatibility"]
+            if item["job_id"] == job["job_id"]
+        )
+        self.assertEqual(matching["available_worker_ids"], ["simulated-worker"])
+        self.assertTrue(
+            next(item for item in matching["workers"] if item["worker_id"] == "simulated-worker")
+            ["hardware_compatible"]
+        )
+
+        mock_profile = snapshot["offline_colab_t4_profile"]
+        self.assertEqual(mock_profile["availability"], "offline_mock")
+        self.assertTrue(mock_profile["is_synthetic"])
+        self.assertIn("not registered", mock_profile["notice"])
+        match = match_job_to_worker(
+            self.queue.get_record(job["job_id"]).manifest,
+            offline_colab_t4_profile(expires_at=NOW + timedelta(hours=1)),
+            now=NOW,
+        )
+        self.assertTrue(match.hardware_compatible)
+        self.assertFalse(match.available_for_lease)
+
+        self.queue.set_worker_state(
+            "simulated-worker", director_id=DIRECTOR_ID, state="disconnected", now=NOW
+        )
+        queued = next(
+            item for item in self.queue.snapshot()["queue_compatibility"]
+            if item["job_id"] == job["job_id"]
+        )
+        self.assertEqual(queued["available_worker_ids"], [])
+        self.assertEqual(self.queue.get_job(job["job_id"])["state"], "queued")
+
+    def test_worker_resource_mismatch_cannot_lease_authorized_job(self) -> None:
+        job = self.enqueue()
+        self.queue.register_worker(
+            director_id=DIRECTOR_ID,
+            worker_id="undersized-worker",
+            workloads=("gpu_inference",),
+            state="available",
+            expires_at=NOW + timedelta(hours=2),
+            vram_mb=16000,
+            cpu_cores=1,
+            memory_mb=4096,
+            now=NOW,
+        )
+        self.authorize(job)
+        with self.assertRaisesRegex(WorkerQueueError, "insufficient-cpu-cores"):
+            self.queue.lease(
+                job["job_id"], worker_id="undersized-worker", now=NOW
+            )
+        self.assertEqual(self.queue.get_job(job["job_id"])["state"], "queued")
+
+    def test_legacy_worker_registration_migrates_without_inventing_capacity(self) -> None:
+        job = self.enqueue()
+        self.authorize(job)
+        self.register_worker()
+        self.queue.close()
+        connection = sqlite3.connect(self.database)
+        try:
+            for column in ("processing_types_json", "memory_mb", "cpu_cores"):
+                connection.execute(
+                    f"ALTER TABLE studio_worker_registrations DROP COLUMN {column}"
+                )
+            connection.commit()
+        finally:
+            connection.close()
+
+        self.queue = WorkerJobQueue(self.allocation, {DIRECTOR_ID})
+        worker = self.queue.snapshot()["workers"][0]
+        self.assertEqual(worker["worker_id"], "simulated-worker")
+        self.assertEqual(worker["state"], "available")
+        self.assertEqual(worker["cpu_cores"], 0)
+        self.assertEqual(worker["memory_mb"], 0)
+        self.assertEqual(self.queue.get_job(job["job_id"])["state"], "queued")
+        with self.assertRaisesRegex(WorkerQueueError, "insufficient-cpu-cores"):
+            self.queue.lease(
+                job["job_id"], worker_id="simulated-worker", now=NOW
+            )
 
     def test_authorization_and_manual_worker_lease_are_gated(self) -> None:
         job = self.enqueue()
@@ -708,6 +797,8 @@ class WorkerJobQueueTests(unittest.TestCase):
             self.assertIn("Submit Synthetic Output Fixture", page)
             self.assertIn("Run One Synthetic Job", page)
             self.assertIn("Output verification", page)
+            self.assertIn("Compatible queued workers", page)
+            self.assertIn("Offline Colab T4 compatibility fixture", page)
             worker_payload = json.dumps(
                 {
                     "director_id": DIRECTOR_ID,
@@ -715,6 +806,9 @@ class WorkerJobQueueTests(unittest.TestCase):
                     "workloads": ["gpu_inference", "cpu_ffmpeg"],
                     "state": "available",
                     "vram_mb": 12000,
+                    "cpu_cores": 4,
+                    "memory_mb": 16384,
+                    "processing_types": ["transcribe"],
                     "operations": [],
                     "language_tags": [],
                     "model_ids": [],
@@ -730,6 +824,8 @@ class WorkerJobQueueTests(unittest.TestCase):
             with urlopen(request) as response:
                 worker_data = json.loads(response.read())
             self.assertTrue(worker_data["is_simulation"])
+            self.assertEqual(worker_data["cpu_cores"], 4)
+            self.assertEqual(worker_data["memory_mb"], 16384)
             queue_payload = json.dumps(
                 {
                     "director_id": DIRECTOR_ID,
@@ -744,6 +840,15 @@ class WorkerJobQueueTests(unittest.TestCase):
             )
             with urlopen(request) as response:
                 queued = json.loads(response.read())
+            with urlopen(f"{base}/api/worker-jobs") as response:
+                snapshot = json.loads(response.read())
+            compatibility = next(
+                item for item in snapshot["queue_compatibility"]
+                if item["job_id"] == queued["job_id"]
+            )
+            self.assertEqual(
+                compatibility["available_worker_ids"], ["dashboard-worker"]
+            )
 
             def post(path: str, payload: dict):
                 request = Request(

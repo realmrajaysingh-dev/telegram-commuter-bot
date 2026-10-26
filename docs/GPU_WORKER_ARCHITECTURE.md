@@ -303,6 +303,75 @@ model, GPU, Colab, Drive, or external API. Success remains a worker-job state,
 not Studio task completion or human/Observer review. Audit history includes
 the ordinary lifecycle events plus a synthetic-scenario event.
 
+## Session 07.5 — Offline worker connector and capability matching
+
+`studio/worker_connector.py` defines a version-1 provider-independent
+`WorkerAdapter` protocol and immutable `WorkerCapabilityProfile`. The contract
+surface includes capability discovery, Director-controlled online/offline
+state, queue-issued claim/lease metadata, heartbeat, and result submission.
+It is an interface only: no Colab, Drive, network, subprocess, FFmpeg, or GPU
+adapter is implemented.
+
+Manual registration now persists declared CPU cores, memory MiB, supported
+processing types, workload kinds, accelerator/VRAM, and the existing operation,
+language, and model capabilities in the same SQLite worker-registration
+records. Existing databases gain additive columns in place; legacy rows have
+unknown CPU/RAM capacities (`0`) and are therefore visible but cannot be
+matched or leased until a new adequately declared worker registration is
+provided. Existing project, task, job, evidence, and audit records are not
+rewritten.
+
+One deterministic matcher checks workload, CPU, RAM, accelerator, VRAM,
+processing operation/type, language, model, manual availability, and
+registration expiry. The same matcher is applied by queue leasing,
+Session 07.4 synthetic execution, persisted dashboard queue-compatibility
+data, and worker-selection controls. Hardware compatibility is reported
+separately from current availability; an incompatible or offline job remains
+queued. A Director authorization is still required independently of a
+compatibility match, and outputs continue through the existing byte/hash and
+job/task/project checks.
+
+The dashboard reports each worker's declared profile and each queued job's
+compatible and currently available workers. It also displays the
+`offline-mock-colab-t4` version-1 profile and per-job compatibility result.
+That fixture is synthetic metadata only, is never stored as a registered or
+available worker, and is never leaseable. The default profile declares a
+T4-like resource shape for compatibility checks, not a promise of Colab
+availability or supported model quality.
+
+### Future Colab notebook handoff contract
+
+A future notebook adapter must remain manually started and treat SQLite/local
+Studio storage as the source of truth. The safe handoff sequence is:
+
+1. A Director explicitly authorizes an approved queued job; the control plane
+   binds authorization to the manifest digest.
+2. A worker presents a versioned capability profile and manually transitions
+   online. The control plane matches requirements and issues one bounded,
+   worker-owned lease; a notebook must not select or self-authorize jobs.
+3. Only the current lease owner may heartbeat or submit a result. Job ID,
+   lease ID, attempt, worker ID, declared artifact references, and checksums
+   must agree with persisted records.
+4. The control plane reads staged output bytes in controlled storage and
+   verifies ownership, size, and SHA-256 before accepting success. Worker
+   metadata alone is not proof of output.
+5. Expired/disconnected leases use the existing interruption/recovery/retry
+   policy. Stale or duplicate results remain rejected. Worker success never
+   completes a Studio task or bypasses evidence, Observer, or Director review.
+
+No endpoint, authentication, notebook, network protocol, shared storage
+transfer, or real worker heartbeat exists yet. The local Director ID and
+worker IDs remain assertions rather than authenticated identities, SQLite is
+not a distributed queue, and declared resource capacity is not independently
+measured. The T4 fixture and manually registered workers must not be presented
+as live Colab workers or genuine external compute.
+
+**Verification:** Full repository suite: **134 tests passed**. Regression
+coverage includes capability and resource matching, offline/unavailable
+worker non-leasability, additive legacy-registration migration without
+inventing capacity, persisted worker profile data, and dashboard matching
+visibility. No warning or test failure was reported.
+
 Failure produces a persisted failed job and follows the existing Director
 retry/new-authorization gates. Interruption advances to lease expiry without
 waiting, exercises recovery, returns the job to queued (or failure at the

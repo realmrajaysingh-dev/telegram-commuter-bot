@@ -180,6 +180,9 @@ _DASHBOARD_HTML = """<!doctype html>
             <label>Worker ID<input name="worker_id" maxlength="64" value="local-worker-01" required></label>
             <label>Workload<select name="workload"><option value="gpu_inference">GPU inference · T4 metadata</option><option value="cpu_ffmpeg">CPU FFmpeg · metadata only</option></select></label>
             <label>Availability<select name="state"><option value="available">Available</option><option value="gpu_unavailable">GPU unavailable</option><option value="disconnected">Disconnected</option><option value="registered">Registered, not available</option></select></label>
+            <label>CPU cores<input name="cpu_cores" type="number" min="1" max="64" value="2" required></label>
+            <label>Memory (MiB)<input name="memory_mb" type="number" min="1" max="262144" value="8192" required></label>
+            <label>Supported processing types (comma-separated)<input name="processing_types" value="transcribe,translate,analyze_media" maxlength="1024"></label>
             <label>Declared VRAM (MiB)<input name="vram_mb" type="number" min="0" max="262144" value="16000" required></label>
             <label>Registration lifetime (hours)<input name="ttl_hours" type="number" min="1" max="12" value="4" required></label>
             <button type="submit">Register Manual Worker</button>
@@ -471,11 +474,13 @@ async function refreshWorkerJobs() {
     counts.append(tile);
   }
   const workers=$("worker-list"); workers.replaceChildren();
+  const mockProfile=snapshot.offline_colab_t4_profile;
+  workers.append(el("p",`${mockProfile.worker_id} · offline mock · ${mockProfile.cpu_cores} CPU · ${mockProfile.memory_mb} MiB RAM · ${mockProfile.vram_mb} MiB T4 VRAM. ${mockProfile.notice}`,"notice"));
   if(!snapshot.workers.length) workers.append(el("p","No manual workers registered.","muted"));
   for(const worker of snapshot.workers) {
     const row=el("div",undefined,"attempt");
     row.append(el("strong",`${worker.worker_id} · ${worker.state}${worker.is_simulation?" · synthetic simulation":""}`));
-    row.append(el("p",`${worker.workloads.join(", ")} · VRAM ${worker.vram_mb} MiB · expires ${worker.expires_at}`,"muted"));
+    row.append(el("p",`${worker.workloads.join(", ")} · ${worker.cpu_cores} CPU · ${worker.memory_mb} MiB RAM · VRAM ${worker.vram_mb} MiB · types: ${worker.processing_types.join(", ")||"none"} · expires ${worker.expires_at}`,"muted"));
     const state=el("select");
     for(const value of ["available","registered","gpu_unavailable","disconnected"])
       state.append(new Option(value.replaceAll("_"," "),value));
@@ -491,6 +496,12 @@ async function refreshWorkerJobs() {
     card.append(el("strong",`${job.state.toUpperCase()} · ${job.workload} · ${job.job_id}`));
     card.append(el("p",`${job.project_title} · ${job.task_title} (${job.task_status})${job.project_is_demo?" · Demo":""}`,"muted"));
     card.append(el("p",`Attempt ${job.attempt_count}/${job.max_attempts} · ${job.resource_requirements.accelerator} · Deadline ${job.deadline_at}`));
+    const compatibility=snapshot.queue_compatibility.find(item=>item.job_id===job.job_id);
+    if(compatibility) card.append(el("p",
+      `Compatible queued workers: ${compatibility.hardware_compatible_worker_ids.join(", ")||"none"} · available now: ${compatibility.available_worker_ids.join(", ")||"none"}`,"muted"));
+    const mockMatch=snapshot.offline_colab_t4_profile.job_matches.find(item=>item.job_id===job.job_id);
+    if(mockMatch) card.append(el("p",
+      `Offline Colab T4 compatibility fixture: ${mockMatch.hardware_compatible?"hardware-compatible":"not compatible"} · ${mockMatch.available_for_lease?"leaseable":"never leaseable"}${mockMatch.reasons.length?` · ${mockMatch.reasons.join(", ")}`:""}`,"notice"));
     if(job.authorization) card.append(el("p",`Authorized by ${job.authorization.director_id} until ${job.authorization.expires_at}`,"muted"));
     if(job.lease) card.append(el("p",`Lease ${job.lease.lease_id} · ${job.lease.worker_id} · expires ${job.lease.expires_at}`,"muted"));
     if(job.last_error) card.append(el("p",`Failure: ${job.last_error}`,"notice"));
@@ -508,10 +519,8 @@ async function refreshWorkerJobs() {
       const authorize=el("button","Director Authorize Execution"); authorize.type="button";
       authorize.addEventListener("click",()=>authorizeWorkerJob(job,authorize)); card.append(authorize);
     } else if(job.state==="queued"&&job.authorization) {
-      const candidates=snapshot.workers.filter(worker=>
-        worker.state==="available"&&worker.workloads.includes(job.workload)&&
-        (job.workload!=="gpu_inference"||worker.vram_mb>=job.resource_requirements.min_vram_mb)
-      );
+      const availableIds=compatibility?.available_worker_ids||[];
+      const candidates=snapshot.workers.filter(worker=>availableIds.includes(worker.worker_id));
       const worker=el("select");
       for(const candidate of candidates) worker.append(new Option(`${candidate.worker_id} · ${candidate.vram_mb} MiB VRAM`,candidate.worker_id));
       const scenario=el("select");
@@ -629,7 +638,10 @@ async function registerManualWorker(event) {
   const payload={
     director_id,worker_id:form.get("worker_id"),workloads:[form.get("workload")],
     state:form.get("state"),vram_mb:Number(form.get("vram_mb")),
-    operations:[],language_tags:[],model_ids:[],ttl_seconds:ttl_hours*3600
+    cpu_cores:Number(form.get("cpu_cores")),memory_mb:Number(form.get("memory_mb")),
+    processing_types:String(form.get("processing_types")).split(",").map(value=>value.trim()).filter(Boolean),
+    operations:String(form.get("processing_types")).split(",").map(value=>value.trim()).filter(Boolean),
+    language_tags:[],model_ids:[],ttl_seconds:ttl_hours*3600
   };
   try {
     await api("/api/workers",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
@@ -1227,11 +1239,22 @@ def create_dashboard_server(
                 if path == "/api/workers":
                     required = {
                         "director_id", "worker_id", "workloads", "state",
-                        "vram_mb", "operations", "language_tags", "model_ids",
+                        "vram_mb", "cpu_cores", "memory_mb", "processing_types",
+                        "operations", "language_tags", "model_ids",
                         "ttl_seconds",
                     }
                     if set(payload) != required:
                         raise WorkerQueueError("Manual worker registration fields are invalid")
+                    for field in (
+                        "workloads", "processing_types", "operations",
+                        "language_tags", "model_ids",
+                    ):
+                        if not isinstance(payload[field], list) or any(
+                            not isinstance(value, str) for value in payload[field]
+                        ):
+                            raise WorkerQueueError(
+                                f"Worker {field.replace('_', ' ')} must be a string list"
+                            )
                     ttl = payload["ttl_seconds"]
                     if type(ttl) is not int or not 1 <= ttl <= 12 * 60 * 60:
                         raise WorkerQueueError("Worker registration lifetime must be at most 12 hours")
@@ -1242,6 +1265,9 @@ def create_dashboard_server(
                         state=payload["state"],
                         expires_at=datetime.now(timezone.utc) + timedelta(seconds=ttl),
                         vram_mb=payload["vram_mb"],
+                        cpu_cores=payload["cpu_cores"],
+                        memory_mb=payload["memory_mb"],
+                        processing_types=tuple(payload["processing_types"]),
                         operations=tuple(payload["operations"]),
                         language_tags=tuple(payload["language_tags"]),
                         model_ids=tuple(payload["model_ids"]),

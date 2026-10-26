@@ -54,6 +54,12 @@ from .worker_contracts import (
     validate_manifest,
     validate_worker_registration,
 )
+from .worker_connector import (
+    WorkerCapabilityProfile,
+    match_job_to_worker,
+    offline_colab_t4_profile,
+    profile_from_registration,
+)
 
 
 class WorkerQueueError(ValueError):
@@ -84,6 +90,32 @@ class WorkerJobQueue:
         self._create_schema()
         self._recover_artifact_storage(now=now or datetime.now(timezone.utc))
         self.recover_expired_leases(now=now)
+
+    def _worker_capacity(self, worker_id: str) -> dict[str, Any]:
+        row = self._connection.execute(
+            """
+            SELECT cpu_cores, memory_mb, processing_types_json
+            FROM studio_worker_registrations WHERE worker_id = ?
+            """,
+            (worker_id,),
+        ).fetchone()
+        if row is None:
+            raise WorkerQueueError("Registered worker not found")
+        return {
+            "cpu_cores": row["cpu_cores"],
+            "memory_mb": row["memory_mb"],
+            "processing_types": json.loads(row["processing_types_json"]),
+        }
+
+    def _worker_profile(self, worker_id: str) -> WorkerCapabilityProfile:
+        worker = self._worker(worker_id)
+        capacity = self._worker_capacity(worker_id)
+        return profile_from_registration(
+            worker,
+            cpu_cores=capacity["cpu_cores"],
+            memory_mb=capacity["memory_mb"],
+            processing_types=tuple(capacity["processing_types"]),
+        )
 
     def close(self) -> None:
         with self._lock:
@@ -117,6 +149,9 @@ class WorkerJobQueue:
                     operations_json TEXT NOT NULL,
                     language_tags_json TEXT NOT NULL,
                     model_ids_json TEXT NOT NULL,
+                    cpu_cores INTEGER NOT NULL DEFAULT 0 CHECK (cpu_cores BETWEEN 0 AND 64),
+                    memory_mb INTEGER NOT NULL DEFAULT 0 CHECK (memory_mb BETWEEN 0 AND 262144),
+                    processing_types_json TEXT NOT NULL DEFAULT '[]',
                     registration_method TEXT NOT NULL CHECK (registration_method = 'manual'),
                     is_simulation INTEGER NOT NULL DEFAULT 1 CHECK (is_simulation = 1),
                     updated_at TEXT NOT NULL
@@ -248,6 +283,21 @@ class WorkerJobQueue:
                 END;
                 """
             )
+            columns = {
+                row["name"]
+                for row in self._connection.execute(
+                    "PRAGMA table_info(studio_worker_registrations)"
+                )
+            }
+            for name, declaration in (
+                ("cpu_cores", "INTEGER NOT NULL DEFAULT 0 CHECK (cpu_cores BETWEEN 0 AND 64)"),
+                ("memory_mb", "INTEGER NOT NULL DEFAULT 0 CHECK (memory_mb BETWEEN 0 AND 262144)"),
+                ("processing_types_json", "TEXT NOT NULL DEFAULT '[]'"),
+            ):
+                if name not in columns:
+                    self._connection.execute(
+                        f"ALTER TABLE studio_worker_registrations ADD COLUMN {name} {declaration}"
+                    )
             self._connection.execute(
                 """
                 CREATE INDEX IF NOT EXISTS studio_worker_jobs_state_created
@@ -1209,6 +1259,9 @@ class WorkerJobQueue:
         state: str,
         expires_at: datetime,
         vram_mb: int = 0,
+        cpu_cores: int = 2,
+        memory_mb: int = 8192,
+        processing_types: tuple[str, ...] = (),
         operations: tuple[str, ...] = (),
         language_tags: tuple[str, ...] = (),
         model_ids: tuple[str, ...] = (),
@@ -1218,6 +1271,23 @@ class WorkerJobQueue:
         if director_id not in self.director_ids:
             raise WorkerQueueError("Only a configured Director may register a worker")
         try:
+            if type(cpu_cores) is not int or not 1 <= cpu_cores <= 64:
+                raise WorkerQueueError("Worker CPU capacity must be between 1 and 64 cores")
+            if type(memory_mb) is not int or not 1 <= memory_mb <= 262144:
+                raise WorkerQueueError("Worker memory capacity must be between 1 and 262144 MiB")
+            if type(vram_mb) is not int or not 0 <= vram_mb <= 262144:
+                raise WorkerQueueError("Worker VRAM capacity must be between 0 and 262144 MiB")
+            if (
+                not isinstance(processing_types, tuple)
+                or len(processing_types) > 64
+                or any(
+                    not isinstance(item, str)
+                    or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", item)
+                    for item in processing_types
+                )
+                or len(set(processing_types)) != len(processing_types)
+            ):
+                raise WorkerQueueError("Processing types must be unique bounded identifiers")
             worker = WorkerRegistration(
                 worker_id=worker_id,
                 state=WorkerState(state),
@@ -1241,9 +1311,9 @@ class WorkerJobQueue:
                     INSERT INTO studio_worker_registrations
                         (worker_id, state, workloads_json, registered_at, expires_at,
                          max_concurrent_jobs, vram_mb, operations_json,
-                         language_tags_json, model_ids_json, registration_method,
-                         is_simulation, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual', 1, ?)
+                         language_tags_json, model_ids_json, cpu_cores, memory_mb,
+                         processing_types_json, registration_method, is_simulation, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual', 1, ?)
                     """,
                     (
                         worker.worker_id,
@@ -1256,6 +1326,9 @@ class WorkerJobQueue:
                         self._json(worker.operations),
                         self._json(worker.language_tags),
                         self._json(worker.model_ids),
+                        cpu_cores,
+                        memory_mb,
+                        self._json(processing_types),
                         self._timestamp(current),
                     ),
                 )
@@ -1311,8 +1384,7 @@ class WorkerJobQueue:
             registration_method=row["registration_method"],
         )
 
-    @staticmethod
-    def _worker_dict(worker: WorkerRegistration) -> dict[str, Any]:
+    def _worker_dict(self, worker: WorkerRegistration) -> dict[str, Any]:
         return {
             "worker_id": worker.worker_id,
             "state": worker.state.value,
@@ -1324,6 +1396,9 @@ class WorkerJobQueue:
             "operations": list(worker.operations),
             "language_tags": list(worker.language_tags),
             "model_ids": list(worker.model_ids),
+            "cpu_cores": self._worker_capacity(worker.worker_id)["cpu_cores"],
+            "memory_mb": self._worker_capacity(worker.worker_id)["memory_mb"],
+            "processing_types": self._worker_capacity(worker.worker_id)["processing_types"],
             "registration_method": worker.registration_method,
             "is_simulation": True,
         }
@@ -1346,6 +1421,16 @@ class WorkerJobQueue:
                     "Director execution authorization is required before leasing"
                 )
             worker = self._worker(worker_id)
+            compatibility = match_job_to_worker(
+                record.manifest,
+                self._worker_profile(worker_id),
+                now=current,
+            )
+            if not compatibility.available_for_lease:
+                raise WorkerQueueError(
+                    "Worker is incompatible or unavailable: "
+                    + ", ".join(compatibility.reasons)
+                )
             active = self._connection.execute(
                 """
                 SELECT COUNT(*) FROM studio_worker_jobs
@@ -1682,22 +1767,13 @@ class WorkerJobQueue:
         ).fetchall()
         eligible_worker = None
         for row in worker_rows:
-            worker = self._worker(row["worker_id"])
-            if record.manifest.workload not in worker.workloads:
+            if not match_job_to_worker(
+                record.manifest,
+                self._worker_profile(row["worker_id"]),
+                now=current + timedelta(seconds=5),
+            ).available_for_lease:
                 continue
-            if (
-                record.manifest.workload is WorkloadKind.GPU_INFERENCE
-                and worker.vram_mb < record.manifest.resources.min_vram_mb
-            ):
-                continue
-            if (
-                not set(record.manifest.capabilities.operations) <= set(worker.operations)
-                or not set(record.manifest.capabilities.language_tags)
-                <= set(worker.language_tags)
-                or not set(record.manifest.capabilities.model_ids) <= set(worker.model_ids)
-            ):
-                continue
-            eligible_worker = worker
+            eligible_worker = self._worker(row["worker_id"])
             break
         if eligible_worker is None:
             raise WorkerQueueError(
@@ -2050,6 +2126,66 @@ class WorkerJobQueue:
                     "SELECT worker_id FROM studio_worker_registrations ORDER BY registered_at DESC"
                 )
             ]
+            queued_compatibility = []
+            for job in jobs:
+                if job["state"] != JobState.QUEUED.value:
+                    continue
+                record = self._record(job["job_id"])
+                matches = [
+                    match_job_to_worker(
+                        record.manifest,
+                        self._worker_profile(worker["worker_id"]),
+                        now=now,
+                    )
+                    for worker in workers
+                ]
+                queued_compatibility.append(
+                    {
+                        "job_id": job["job_id"],
+                        "hardware_compatible_worker_ids": [
+                            match.worker_id for match in matches if match.hardware_compatible
+                        ],
+                        "available_worker_ids": [
+                            match.worker_id for match in matches if match.available_for_lease
+                        ],
+                        "workers": [
+                            {
+                                "worker_id": match.worker_id,
+                                "hardware_compatible": match.hardware_compatible,
+                                "available_for_lease": match.available_for_lease,
+                                "reasons": list(match.reasons),
+                            }
+                            for match in matches
+                        ],
+                    }
+                )
+            mock_colab = offline_colab_t4_profile(expires_at=now + timedelta(hours=1))
+            offline_colab_profile = {
+                "worker_id": mock_colab.worker_id,
+                "profile_version": mock_colab.profile_version,
+                "availability": mock_colab.availability,
+                "is_synthetic": mock_colab.is_synthetic,
+                "workloads": [item.value for item in mock_colab.workloads],
+                "cpu_cores": mock_colab.cpu_cores,
+                "memory_mb": mock_colab.memory_mb,
+                "accelerators": [item.value for item in mock_colab.accelerators],
+                "vram_mb": mock_colab.vram_mb,
+                "processing_types": list(mock_colab.processing_types),
+                "notice": "Compatibility fixture only; not registered, online, or leaseable.",
+            }
+            for job in jobs:
+                if job["state"] != JobState.QUEUED.value:
+                    continue
+                record = self._record(job["job_id"])
+                match = match_job_to_worker(record.manifest, mock_colab, now=now)
+                offline_colab_profile.setdefault("job_matches", []).append(
+                    {
+                        "job_id": job["job_id"],
+                        "hardware_compatible": match.hardware_compatible,
+                        "available_for_lease": match.available_for_lease,
+                        "reasons": list(match.reasons),
+                    }
+                )
         counts = {state.value: 0 for state in JobState}
         for job in jobs:
             counts[job["state"]] += 1
@@ -2058,6 +2194,8 @@ class WorkerJobQueue:
             "mode": "local_only",
             "workers": workers,
             "jobs": jobs,
+            "queue_compatibility": queued_compatibility,
+            "offline_colab_t4_profile": offline_colab_profile,
             "counts": counts,
             "available_worker_count": sum(
                 worker["state"] == WorkerState.AVAILABLE.value

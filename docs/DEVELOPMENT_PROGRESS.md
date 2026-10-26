@@ -205,3 +205,45 @@ Success runs lease/start/heartbeat, generates deterministic synthetic fixture by
 **Limitations:** The lifecycle is a local simulation only. It does not invoke a worker process or perform real CPU/GPU work; worker and Director identities remain unauthenticated local assertions. No Colab, Drive, network, production publishing, or code execution is connected.
 
 **Readiness:** **PASS** for the requested offline synthetic worker lifecycle. Real compute-worker operation remains **BLOCKED** until separately authorized and implemented with authenticated identities and operational storage controls.
+
+## Session 07.5 — Offline Worker Connector and Colab Readiness
+
+Added `studio/worker_connector.py` with a versioned provider-neutral adapter
+protocol, capability profile, deterministic job/worker matcher, and a
+synthetic offline Colab T4 profile. The connector reuses the existing SQLite
+queue and does not add another queue, adapter runtime, or execution service.
+
+Manual worker CPU cores, RAM, and supported processing types now persist
+alongside existing workload, GPU/VRAM, operation, language, model, state, and
+expiry declarations. The shared matcher is enforced at lease and synthetic
+execution time and its persisted-state-derived results are displayed in the
+dashboard. Hardware compatibility is distinguished from current availability;
+unauthorized, unsupported, unavailable, or expired jobs remain queued.
+Director execution authorization, lease ownership, expiry/recovery, retry,
+artifact byte/hash verification, immutable audit events, and task review gates
+remain unchanged. The offline mock T4 is marked synthetic and cannot be
+registered, considered online, or leased.
+
+Existing worker tables receive additive capacity columns. Legacy registrations
+retain their prior records and have unknown CPU/RAM represented as zero; they
+are not silently assigned inferred hardware capacity and cannot match a job
+until a newly declared worker profile is registered. No projects, jobs,
+artifacts, evidence, or historical audit events are rewritten.
+
+**Verification:** Added tests for capability matching, undersized resources,
+unavailable workers remaining queued, offline-mock Colab compatibility without
+leaseability, persistence of CPU/RAM declarations, and dashboard compatibility
+data. Existing tests continue to cover Director authorization, stale/duplicate
+results, output validation, retries, interruption, and recovery. Final
+full-suite run: **134 tests passed**, with no failures or warnings.
+
+**Limitations:** No Colab or Drive connection, notebook adapter implementation,
+network/authentication, real workload execution, GPU inference, or rendering
+exists. Capability declarations are not hardware-attested; Director and worker
+identifiers remain unauthenticated local prototype inputs. Worker success
+remains separate from Studio task completion and approval.
+
+**Readiness:** **PASS** for the offline connector-contract and capability
+matching milestone. Real Colab or operational worker execution remains
+**BLOCKED** pending separate authorization, authenticated identities, network
+and storage design, and implementation of an actual adapter.
