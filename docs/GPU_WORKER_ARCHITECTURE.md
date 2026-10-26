@@ -233,6 +233,52 @@ and dashboard endpoints.
 Before operational integration, still required: formal schema migration and
 backup policy, real Director authentication, worker identity/registration
 handshake, Colab disconnect behavior in an actual runner, safe Drive
-credential/storage integration, byte-level artifact verification,
-cleanup/retention, cancellation acknowledgement for running workers,
+credential/storage integration, byte-level verification at a real-worker
+adapter boundary, cleanup/retention, cancellation acknowledgement for running workers,
 operational monitoring, and privacy/licensing/consent controls.
+
+## Session 07.3 — Worker output integrity and recovery
+
+The Session 07.2 metadata-only result path has been replaced by byte-verified
+local result acceptance. A result must include every declared local output and
+the supplied bytes. The queue checks job/task/project ownership, declared
+artifact ID, backend/key/media type, non-empty content, exact size, SHA-256
+syntax and digest, per-output and aggregate output limits, and the job storage
+budget. The server writes bytes to a private (`0700`) database-adjacent worker
+artifact directory using a unique staging file (`0600`), reads the stored file
+back, verifies its size and digest, and publishes it without overwriting an
+existing path. Only then, in the same SQLite transaction as verified-output
+metadata, immutable checks, and audit events, can the lifecycle contract mark
+the job succeeded.
+
+New `studio_worker_verified_outputs` rows bind the immutable path, digest,
+size, attempt, media type, task, and project to the exact job. Append-only
+`studio_worker_output_checks` retain awaiting, verified, and failed checks;
+hash-linked job events record output hashes/sizes on acceptance and verification
+failure reasons without recording content. Failures do not mark a job
+succeeded. The running job can be corrected with a valid result on the same
+lease or reported failed through the existing lifecycle; retries continue to
+require Director control and a new authorization.
+
+On startup and before dashboard job/snapshot reads, the queue verifies the
+latest accepted artifact bytes against their persisted digest, size, ownership,
+and declaration. Unreferenced staging files and generated orphan files are
+removed from the private artifact directory. A missing or tampered accepted
+output appends an immutable integrity event and changes the persisted job state
+from succeeded to failed, retaining the original success and result events.
+Historical Session 07.2 metadata-only rows and successes are not backfilled or
+promoted: the dashboard reports their outputs as awaiting verification.
+
+The local dashboard provides a clearly labeled synthetic output-fixture action.
+Its local JSON endpoint requires `synthetic: true`, accepts strict base64, caps
+the fixture at 1 MiB, and does not execute, render, or publish the bytes. CPU
+and GPU test fixtures use the same output-integrity checks. Verified worker
+outputs remain separate from allocation evidence; they do not satisfy task
+review, Observer, or Director completion gates.
+
+This is not a real worker protocol. Director and worker IDs remain local
+assertions, and dashboard fixtures are synthetic. No Colab/Drive, external
+network, model, FFmpeg, or publishing integration exists. Local file and
+SQLite consistency is checked on reads/restart, but external backup/retention,
+authenticated worker identity, and cross-process operational recovery remain
+future work.

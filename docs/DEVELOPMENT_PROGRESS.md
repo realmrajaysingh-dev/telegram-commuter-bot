@@ -177,3 +177,19 @@ The existing local dashboard now displays persisted worker job counts/details, m
 **Limitations:** Director and worker IDs are configured/local assertions, not authenticated identities. Synthetic worker registration does not establish a live worker. Worker results provide metadata only; output bytes and checksums are not verified. There is no Colab/Drive connection, formal schema migration/backup policy, or operational job execution.
 
 **Readiness:** **PASS** for the requested local persistent queue and simulated dashboard integration. Operational worker execution remains **BLOCKED** until identity authentication, actual workers, byte-level output verification, and approved storage integration are implemented in a separately authorized batch.
+
+## Session 07.3 — Worker Output Integrity and Recovery
+
+**Audit finding:** Session 07.2's `submit_result` validated result metadata against the manifest and lease, but did not store or read output bytes. It therefore marked results succeeded from labels/references alone. The allocation engine's existing evidence storage correctly uses a controlled local directory and checks associated files, hashes, sizes, and task ownership; those records remain unchanged and are not reused as worker outputs.
+
+Added controlled local worker artifact storage adjacent to the Studio database. Result acceptance requires actual bytes for every declared output, exact job/task/project and output-declaration association, non-empty content, byte-count agreement, valid SHA-256, and a digest matching the bytes read back from a private staged file. It enforces declaration, aggregate-output, and job-storage limits, uses non-overwriting local artifact names, and persists verified references/checks atomically with the succeeded transition. New immutable output-check rows and hash-linked events record awaiting, verified, failed, integrity failures, and accepted digest/size metadata.
+
+On queue startup and before persisted dashboard job reads, latest accepted output files are reopened and rechecked for safe path, regular-file status, existence, size, digest, task/project association, and output declaration. Staging or generated orphan files are cleaned only inside the controlled storage directory. Detected loss/tampering records a failed verification and immutable audit event, and invalidates the current succeeded job to failed while preserving its original result/audit history. Earlier metadata-only Session 07.2 results remain awaiting verification; no historical output or evidence is fabricated.
+
+The dashboard now shows output verification states and offers a local synthetic output fixture action. The endpoint explicitly requires `synthetic: true`, strict base64, and a 1 MiB fixture limit. It creates no rendered media and executes no content. CPU/GPU fixture tests exercise the same persistent verification path. Worker outputs are not allocation evidence and do not bypass existing task evidence, Observer, review, or Director completion gates.
+
+**Verification:** focused queue/contract tests: **36 passed**. Python compilation, embedded dashboard JavaScript syntax, and diff checks pass. Final full-suite run: **127 tests passed**, with no failures or warnings.
+
+**Limitations:** worker/Director IDs are still unauthenticated local assertions. The UI fixture is synthetic, and there is no real worker, Colab, Drive, model, FFmpeg, external API, or publishing. Recovery detects and invalidates tampered current results; backup/retention policy and authenticated cross-process worker recovery remain future work.
+
+**Readiness:** **PASS** for local byte-verified output storage, simulated result submission, and tamper/interruption recovery. Operational worker execution remains **BLOCKED** pending authenticated worker identity, a separately authorized real worker adapter, and operational storage/backup controls.

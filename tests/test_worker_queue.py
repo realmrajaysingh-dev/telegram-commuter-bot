@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import base64
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 from pathlib import Path
 import sqlite3
+import stat
 import tempfile
 import threading
 import unittest
@@ -116,6 +118,25 @@ class WorkerJobQueueTests(unittest.TestCase):
             job["job_id"], director_id=DIRECTOR_ID, now=NOW
         )
 
+    def output_payload(
+        self,
+        job,
+        content: bytes = b"Synthetic persisted output fixture.",
+        *,
+        claimed_content: bytes | None = None,
+    ):
+        declaration = job["output_declarations"][0]
+        claimed = content if claimed_content is None else claimed_content
+        return {
+            "artifact_id": declaration["artifact_id"],
+            "backend": declaration["backend"],
+            "key": declaration["key"],
+            "sha256": hashlib.sha256(claimed).hexdigest(),
+            "size_bytes": len(claimed),
+            "media_type": declaration["media_type"],
+            "content": content,
+        }
+
     def test_enqueue_requires_active_task_approved_plan_and_valid_evidence(self) -> None:
         with self.assertRaisesRegex(WorkerQueueError, "configured Director"):
             self.queue.enqueue_task(
@@ -132,7 +153,7 @@ class WorkerJobQueueTests(unittest.TestCase):
         self.assertEqual(queued["task_id"], self.task["task_id"])
         self.assertEqual(queued["workload"], "gpu_inference")
         self.assertEqual(queued["input_artifacts"][0]["sha256"], self.task["evidence_artifacts"][0]["sha256"])
-        self.assertEqual(queued["output_verification"], "none")
+        self.assertEqual(queued["output_verification"], "awaiting_verification")
 
     def test_queue_idempotency_and_conflicting_key_reuse(self) -> None:
         first = self.enqueue(key="same-request")
@@ -262,7 +283,7 @@ class WorkerJobQueueTests(unittest.TestCase):
         )
         self.assertTrue(self.queue.verify_audit_chain(job["job_id"]))
 
-    def test_result_metadata_succeeds_but_never_becomes_studio_evidence(self) -> None:
+    def test_verified_output_succeeds_but_never_becomes_studio_evidence(self) -> None:
         job = self.enqueue()
         self.authorize(job)
         self.register_worker()
@@ -271,15 +292,7 @@ class WorkerJobQueueTests(unittest.TestCase):
             job["job_id"], worker_id="simulated-worker",
             now=NOW + timedelta(seconds=1),
         )
-        declaration = running["output_declarations"][0]
-        output = {
-            "artifact_id": declaration["artifact_id"],
-            "backend": declaration["backend"],
-            "key": declaration["key"],
-            "sha256": hashlib.sha256(b"synthetic output metadata").hexdigest(),
-            "size_bytes": 128,
-            "media_type": declaration["media_type"],
-        }
+        output = self.output_payload(job)
         completed = self.queue.submit_result(
             job["job_id"],
             worker_id="simulated-worker",
@@ -290,20 +303,45 @@ class WorkerJobQueueTests(unittest.TestCase):
             now=NOW + timedelta(seconds=2),
         )
         self.assertEqual(completed["state"], "succeeded")
-        self.assertEqual(completed["output_verification"], "unverified_metadata")
-        self.assertEqual(completed["outputs"][0]["verification_status"], "unverified_metadata")
+        self.assertEqual(completed["output_verification"], "verified")
+        self.assertEqual(completed["outputs"][0]["verification_status"], "verified")
+        self.assertTrue(completed["outputs"][0]["is_synthetic"])
+        self.assertEqual(completed["outputs"][0]["sha256"], output["sha256"])
+        self.assertEqual(completed["audit_events"][-1]["event_type"], "outputs_verified")
+        self.assertIn(output["sha256"], completed["audit_events"][-1]["details_json"])
+        stored_file = (
+            self.database.parent
+            / f".{self.database.name}.worker-artifacts"
+            / completed["outputs"][0]["storage_name"]
+        )
+        self.assertEqual(stored_file.read_bytes(), output["content"])
+        self.assertEqual(stat.S_IMODE(stored_file.parent.stat().st_mode), 0o700)
+        self.assertEqual(stat.S_IMODE(stored_file.stat().st_mode), 0o600)
         with self.assertRaises(sqlite3.IntegrityError):
             self.queue._connection.execute(
-                "UPDATE studio_worker_job_outputs SET verification_status='verified' "
+                "UPDATE studio_worker_verified_outputs SET sha256='tampered' "
                 "WHERE job_id=?",
                 (job["job_id"],),
             )
+        self.queue._connection.rollback()
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.queue._connection.execute(
+                "DELETE FROM studio_worker_output_checks WHERE job_id=?",
+                (job["job_id"],),
+            )
+        self.queue._connection.rollback()
         task = next(
             item for item in self.allocation.get_plan_for_project(self.project["project_id"])["tasks"]
             if item["task_id"] == self.task["task_id"]
         )
         self.assertEqual(len(task["evidence_artifacts"]), 1)
         self.assertEqual(task["status"], "active")
+        self.queue.close()
+        self.queue = WorkerJobQueue(self.allocation, {DIRECTOR_ID})
+        persisted = self.queue.get_job(job["job_id"])
+        self.assertEqual(persisted["state"], "succeeded")
+        self.assertEqual(persisted["output_verification"], "verified")
+        self.assertTrue(self.queue.verify_audit_chain(job["job_id"]))
         with self.assertRaisesRegex(WorkerQueueError, "already accepted"):
             self.queue.submit_result(
                 job["job_id"],
@@ -324,21 +362,18 @@ class WorkerJobQueueTests(unittest.TestCase):
             job["job_id"], worker_id="simulated-worker",
             now=NOW + timedelta(seconds=1),
         )
-        declaration = running["output_declarations"][0]
-        output = {
-            "artifact_id": declaration["artifact_id"],
-            "backend": declaration["backend"],
-            "key": "different/path.bin",
-            "sha256": hashlib.sha256(b"bad output").hexdigest(),
-            "size_bytes": 128,
-            "media_type": declaration["media_type"],
-        }
+        output = self.output_payload(job)
+        output["key"] = "different/path.bin"
         with self.assertRaisesRegex(WorkerQueueError, "does not match"):
             self.queue.submit_result(
                 job["job_id"], worker_id="simulated-worker",
                 lease_id=running["lease"]["lease_id"], attempt=1,
                 outputs=(output,), now=NOW + timedelta(seconds=2),
             )
+        rejected = self.queue.get_job(job["job_id"])
+        self.assertEqual(rejected["state"], "running")
+        self.assertEqual(rejected["output_verification"], "failed")
+        self.assertEqual(rejected["audit_events"][-1]["event_type"], "output_verification_failed")
         with self.assertRaisesRegex(WorkerQueueError, "stale"):
             self.queue.submit_result(
                 job["job_id"], worker_id="simulated-worker",
@@ -346,6 +381,193 @@ class WorkerJobQueueTests(unittest.TestCase):
                 outputs=(output,), now=NOW + timedelta(seconds=2),
             )
         self.assertEqual(self.queue.get_job(job["job_id"])["state"], "running")
+
+    def test_missing_output_is_rejected_then_valid_fixture_can_complete(self) -> None:
+        job = self.enqueue()
+        self.authorize(job)
+        self.register_worker()
+        self.queue.lease(job["job_id"], worker_id="simulated-worker", now=NOW)
+        running = self.queue.start(
+            job["job_id"], worker_id="simulated-worker",
+            now=NOW + timedelta(seconds=1),
+        )
+        with self.assertRaisesRegex(WorkerQueueError, "missing"):
+            self.queue.submit_result(
+                job["job_id"], worker_id="simulated-worker",
+                lease_id=running["lease"]["lease_id"], attempt=1,
+                outputs=(), now=NOW + timedelta(seconds=2),
+            )
+        failed = self.queue.get_job(job["job_id"])
+        self.assertEqual(failed["state"], "running")
+        self.assertEqual(failed["output_verification"], "failed")
+        self.assertEqual(failed["output_checks"][-1]["error_code"], "output_missing")
+        completed = self.queue.submit_result(
+            job["job_id"], worker_id="simulated-worker",
+            lease_id=running["lease"]["lease_id"], attempt=1,
+            outputs=(self.output_payload(job),), now=NOW + timedelta(seconds=3),
+        )
+        self.assertEqual(completed["state"], "succeeded")
+        self.assertEqual(completed["output_verification"], "verified")
+        self.assertTrue(self.queue.verify_audit_chain(job["job_id"]))
+
+    def test_empty_oversized_and_checksum_tampered_outputs_are_rejected(self) -> None:
+        job = self.enqueue()
+        self.authorize(job)
+        self.register_worker()
+        self.queue.lease(job["job_id"], worker_id="simulated-worker", now=NOW)
+        running = self.queue.start(
+            job["job_id"], worker_id="simulated-worker",
+            now=NOW + timedelta(seconds=1),
+        )
+        with self.assertRaisesRegex(WorkerQueueError, "empty"):
+            self.queue.submit_result(
+                job["job_id"], worker_id="simulated-worker",
+                lease_id=running["lease"]["lease_id"], attempt=1,
+                outputs=(self.output_payload(job, b""),), now=NOW + timedelta(seconds=2),
+            )
+        with self.assertRaisesRegex(WorkerQueueError, "checksum"):
+            self.queue.submit_result(
+                job["job_id"], worker_id="simulated-worker",
+                lease_id=running["lease"]["lease_id"], attempt=1,
+                outputs=(
+                    self.output_payload(
+                        job, b"tampered bytes", claimed_content=b"expected bytes"
+                    ),
+                ),
+                now=NOW + timedelta(seconds=3),
+            )
+        declaration = job["output_declarations"][0]
+        oversized = self.output_payload(job, b"x")
+        oversized["size_bytes"] = declaration["max_bytes"] + 1
+        with self.assertRaisesRegex(WorkerQueueError, "oversized"):
+            self.queue.submit_result(
+                job["job_id"], worker_id="simulated-worker",
+                lease_id=running["lease"]["lease_id"], attempt=1,
+                outputs=(oversized,), now=NOW + timedelta(seconds=4),
+            )
+        current = self.queue.get_job(job["job_id"])
+        self.assertEqual(current["state"], "running")
+        self.assertEqual(current["output_verification"], "failed")
+        self.assertEqual(
+            [check["status"] for check in current["output_checks"][-3:]],
+            ["failed", "failed", "failed"],
+        )
+        self.assertTrue(self.queue.verify_audit_chain(job["job_id"]))
+
+    def test_output_from_another_job_cannot_be_accepted(self) -> None:
+        job = self.enqueue(key="owner-job")
+        another = self.enqueue(key="other-owner-job")
+        self.authorize(job)
+        self.register_worker()
+        self.queue.lease(job["job_id"], worker_id="simulated-worker", now=NOW)
+        running = self.queue.start(
+            job["job_id"], worker_id="simulated-worker",
+            now=NOW + timedelta(seconds=1),
+        )
+        wrong = self.output_payload(another)
+        with self.assertRaisesRegex(WorkerQueueError, "not declared"):
+            self.queue.submit_result(
+                job["job_id"], worker_id="simulated-worker",
+                lease_id=running["lease"]["lease_id"], attempt=1,
+                outputs=(wrong,), now=NOW + timedelta(seconds=2),
+            )
+        self.assertEqual(self.queue.get_job(job["job_id"])["state"], "running")
+        self.assertEqual(self.queue.get_job(job["job_id"])["output_verification"], "failed")
+
+    def test_verified_output_is_rechecked_after_restart_and_tampering(self) -> None:
+        job = self.enqueue()
+        self.authorize(job)
+        self.register_worker()
+        self.queue.lease(job["job_id"], worker_id="simulated-worker", now=NOW)
+        running = self.queue.start(
+            job["job_id"], worker_id="simulated-worker",
+            now=NOW + timedelta(seconds=1),
+        )
+        completed = self.queue.submit_result(
+            job["job_id"], worker_id="simulated-worker",
+            lease_id=running["lease"]["lease_id"], attempt=1,
+            outputs=(self.output_payload(job),), now=NOW + timedelta(seconds=2),
+        )
+        artifact_path = (
+            self.database.parent
+            / f".{self.database.name}.worker-artifacts"
+            / completed["outputs"][0]["storage_name"]
+        )
+        orphan_staging = artifact_path.parent / "worker-output-staging-interrupted"
+        orphan_result = artifact_path.parent / "job-orphan.output-orphan.1.bin"
+        orphan_staging.write_bytes(b"partial synthetic bytes")
+        orphan_result.write_bytes(b"uncommitted fixture")
+        valid_content = self.output_payload(job)["content"]
+        artifact_path.write_bytes(b"X" + valid_content[1:])
+        self.queue.close()
+        self.queue = WorkerJobQueue(
+            self.allocation, {DIRECTOR_ID}, now=NOW + timedelta(seconds=3)
+        )
+        recovered = self.queue.get_job(job["job_id"])
+        self.assertEqual(recovered["state"], "failed")
+        self.assertEqual(recovered["output_verification"], "failed")
+        self.assertEqual(recovered["last_error"], "persisted_output_hash_mismatch")
+        self.assertFalse(orphan_staging.exists())
+        self.assertFalse(orphan_result.exists())
+        self.assertIn(
+            "output_integrity_failed",
+            [event["event_type"] for event in recovered["audit_events"]],
+        )
+        self.assertTrue(self.queue.verify_audit_chain(job["job_id"]))
+
+    def test_verified_output_symlink_is_rejected_on_restart(self) -> None:
+        job = self.enqueue()
+        self.authorize(job)
+        self.register_worker()
+        self.queue.lease(job["job_id"], worker_id="simulated-worker", now=NOW)
+        running = self.queue.start(
+            job["job_id"], worker_id="simulated-worker",
+            now=NOW + timedelta(seconds=1),
+        )
+        completed = self.queue.submit_result(
+            job["job_id"], worker_id="simulated-worker",
+            lease_id=running["lease"]["lease_id"], attempt=1,
+            outputs=(self.output_payload(job),), now=NOW + timedelta(seconds=2),
+        )
+        artifact_directory = (
+            self.database.parent / f".{self.database.name}.worker-artifacts"
+        )
+        artifact_path = artifact_directory / completed["outputs"][0]["storage_name"]
+        external_path = self.database.parent / "outside-worker-artifact.txt"
+        external_path.write_bytes(b"external file must remain untouched")
+        artifact_path.unlink()
+        artifact_path.symlink_to(external_path)
+        self.queue.close()
+        self.queue = WorkerJobQueue(
+            self.allocation, {DIRECTOR_ID}, now=NOW + timedelta(seconds=3)
+        )
+        rejected = self.queue.get_job(job["job_id"])
+        self.assertEqual(rejected["state"], "failed")
+        self.assertEqual(rejected["output_verification"], "failed")
+        self.assertEqual(external_path.read_bytes(), b"external file must remain untouched")
+
+    def test_cpu_and_gpu_synthetic_outputs_are_persisted_and_verified(self) -> None:
+        self.register_worker()
+        for index, workload in enumerate(("cpu_ffmpeg", "gpu_inference")):
+            with self.subTest(workload=workload):
+                job = self.enqueue(workload, key=f"synthetic-{workload}")
+                self.authorize(job)
+                start = NOW + timedelta(seconds=index * 20)
+                self.queue.lease(
+                    job["job_id"], worker_id="simulated-worker", now=start
+                )
+                running = self.queue.start(
+                    job["job_id"], worker_id="simulated-worker",
+                    now=start + timedelta(seconds=1),
+                )
+                verified = self.queue.submit_result(
+                    job["job_id"], worker_id="simulated-worker",
+                    lease_id=running["lease"]["lease_id"], attempt=1,
+                    outputs=(self.output_payload(job, f"{workload} fixture".encode()),),
+                    now=start + timedelta(seconds=2),
+                )
+                self.assertEqual(verified["output_verification"], "verified")
+                self.assertTrue(verified["outputs"][0]["is_synthetic"])
 
     def test_task_evidence_and_observer_states_are_not_bypassed(self) -> None:
         job = self.enqueue()
@@ -376,7 +598,8 @@ class WorkerJobQueueTests(unittest.TestCase):
             with urlopen(f"{base}/") as response:
                 page = response.read().decode("utf-8")
             self.assertIn("Persistent Worker Queue", page)
-            self.assertIn("unverified metadata only", page)
+            self.assertIn("Submit Synthetic Output Fixture", page)
+            self.assertIn("Output verification", page)
             worker_payload = json.dumps(
                 {
                     "director_id": DIRECTOR_ID,
@@ -413,9 +636,88 @@ class WorkerJobQueueTests(unittest.TestCase):
             )
             with urlopen(request) as response:
                 queued = json.loads(response.read())
+
+            def post(path: str, payload: dict):
+                request = Request(
+                    f"{base}{path}",
+                    data=json.dumps(payload).encode(),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urlopen(request) as response:
+                    return json.loads(response.read())
+
+            job_path = f"/api/worker-jobs/{queued['job_id']}"
+            post(
+                job_path + "/authorize",
+                {"director_id": DIRECTOR_ID},
+            )
+            post(
+                job_path + "/lease",
+                {"worker_id": "dashboard-worker", "lease_seconds": 300},
+            )
+            running = post(
+                job_path + "/start",
+                {"worker_id": "dashboard-worker"},
+            )
+            fixture = b"Synthetic dashboard GPU result fixture."
+            declaration = running["output_declarations"][0]
+            invalid_result_request = Request(
+                f"{base}{job_path}/result",
+                data=json.dumps(
+                    {
+                        "synthetic": True,
+                        "worker_id": "dashboard-worker",
+                        "lease_id": running["lease"]["lease_id"],
+                        "attempt": running["lease"]["attempt"],
+                        "outputs": [
+                            {
+                                "artifact_id": declaration["artifact_id"],
+                                "backend": declaration["backend"],
+                                "key": declaration["key"],
+                                "sha256": hashlib.sha256(fixture).hexdigest(),
+                                "size_bytes": len(fixture),
+                                "media_type": declaration["media_type"],
+                                "content_base64": "%%%invalid%%%",
+                            }
+                        ],
+                    }
+                ).encode(),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with self.assertRaises(HTTPError) as error:
+                urlopen(invalid_result_request)
+            self.assertEqual(error.exception.code, 400)
+            error.exception.close()
+            post(
+                job_path + "/result",
+                {
+                    "synthetic": True,
+                    "worker_id": "dashboard-worker",
+                    "lease_id": running["lease"]["lease_id"],
+                    "attempt": running["lease"]["attempt"],
+                    "outputs": [
+                        {
+                            "artifact_id": declaration["artifact_id"],
+                            "backend": declaration["backend"],
+                            "key": declaration["key"],
+                            "sha256": hashlib.sha256(fixture).hexdigest(),
+                            "size_bytes": len(fixture),
+                            "media_type": declaration["media_type"],
+                            "content_base64": base64.b64encode(fixture).decode("ascii"),
+                        }
+                    ],
+                },
+            )
+            with urlopen(f"{base}{job_path}") as response:
+                verified_job = json.loads(response.read())
+            self.assertEqual(verified_job["state"], "succeeded")
+            self.assertEqual(verified_job["output_verification"], "verified")
+
             with urlopen(f"{base}/api/worker-jobs") as response:
                 snapshot = json.loads(response.read())
-            self.assertEqual(snapshot["counts"]["queued"], 1)
+            self.assertEqual(snapshot["counts"]["succeeded"], 1)
             self.assertEqual(snapshot["jobs"][0]["job_id"], queued["job_id"])
             self.assertEqual(snapshot["workers"][0]["worker_id"], "dashboard-worker")
             with self.assertRaises(HTTPError) as error:

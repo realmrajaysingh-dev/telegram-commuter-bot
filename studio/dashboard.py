@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import ipaddress
@@ -24,6 +26,8 @@ from .worker_contracts import WorkloadKind
 _ISSUE_ID_PATTERN = re.compile(r"^[a-f0-9]{32}$")
 _MAX_REQUEST_BYTES = 8_192
 _MAX_EVIDENCE_REQUEST_BYTES = MAX_EVIDENCE_BYTES * 4 + 4_096
+_MAX_WORKER_OUTPUT_BYTES = 1 * 1024**2
+_MAX_WORKER_RESULT_REQUEST_BYTES = _MAX_WORKER_OUTPUT_BYTES * 4 // 3 + 16_384
 
 
 class _DashboardHTTPServer(ThreadingHTTPServer):
@@ -490,7 +494,12 @@ async function refreshWorkerJobs() {
     if(job.authorization) card.append(el("p",`Authorized by ${job.authorization.director_id} until ${job.authorization.expires_at}`,"muted"));
     if(job.lease) card.append(el("p",`Lease ${job.lease.lease_id} · ${job.lease.worker_id} · expires ${job.lease.expires_at}`,"muted"));
     if(job.last_error) card.append(el("p",`Failure: ${job.last_error}`,"notice"));
-    if(job.outputs.length) card.append(el("p",`Output references: ${job.outputs.map(item=>`${item.artifact_id} (${item.verification_status})`).join(", ")}`,"notice"));
+    card.append(el("p",`Output verification: ${job.output_verification.replaceAll("_"," ")}`,"notice"));
+    if(job.outputs.length) card.append(el("p",`Stored outputs: ${job.outputs.map(item=>`${item.artifact_id} (${item.verification_status}${item.is_synthetic?" · synthetic":""})`).join(", ")}`,"notice"));
+    const latestChecks=new Map();
+    for(const check of job.output_checks) latestChecks.set(check.artifact_id,check);
+    for(const [artifactId,check] of latestChecks) if(check.status==="failed")
+      card.append(el("p",`Output ${artifactId} failed verification: ${check.error_code||"verification_failed"}`,"notice"));
     if(job.state==="queued"&&!job.authorization) {
       const authorize=el("button","Director Authorize Execution"); authorize.type="button";
       authorize.addEventListener("click",()=>authorizeWorkerJob(job,authorize)); card.append(authorize);
@@ -515,7 +524,9 @@ async function refreshWorkerJobs() {
       heartbeat.addEventListener("click",()=>workerJobAction(job,"heartbeat",{worker_id:job.lease.worker_id,lease_seconds:300},heartbeat));
       const fail=el("button","Report Simulated Failure"); fail.type="button";
       fail.addEventListener("click",()=>reportWorkerFailure(job,fail));
-      card.append(heartbeat,fail);
+      const submitOutput=el("button","Submit Synthetic Output Fixture"); submitOutput.type="button";
+      submitOutput.addEventListener("click",()=>submitSyntheticWorkerOutput(job,submitOutput));
+      card.append(heartbeat,fail,submitOutput);
     } else if(job.state==="failed"&&job.attempt_count<job.max_attempts) {
       const retry=el("button","Director Retry"); retry.type="button";
       retry.addEventListener("click",()=>directorWorkerAction(job,"retry",retry));
@@ -537,7 +548,11 @@ async function workerMutation(url,payload,button) {
   try {
     await api(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
     await refreshWorkerJobs();
-  } catch(error) { alert(`Worker queue action failed: ${error.message}`); button.disabled=false; }
+  } catch(error) {
+    alert(`Worker queue action failed: ${error.message}`);
+    button.disabled=false;
+    refreshWorkerJobs().catch(refreshError=>$("worker-job-list").replaceChildren(el("div",refreshError.message,"notice")));
+  }
 }
 async function enqueueWorkerJob(task,workload,button) {
   const director_id=await requestDirector(); if(!director_id) return;
@@ -558,6 +573,28 @@ async function reportWorkerFailure(job,button) {
   const error_code=window.prompt("Synthetic worker failure code (no sensitive details):");
   if(!error_code) return;
   await workerJobAction(job,"fail",{worker_id:job.lease.worker_id,error_code},button);
+}
+async function submitSyntheticWorkerOutput(job,button) {
+  const declaration=job.output_declarations[0];
+  if(!declaration) { alert("This job has no declared output."); return; }
+  const text=window.prompt("Synthetic output fixture text. It will be stored locally, not executed or rendered.",`Synthetic ${job.workload} output fixture for ${job.job_id}`);
+  if(text===null) return;
+  if(!text.trim()) { alert("Output cannot be empty."); return; }
+  const bytes=new TextEncoder().encode(text);
+  if(bytes.byteLength>1024*1024) { alert("Synthetic output exceeds the local 1 MiB upload limit."); return; }
+  const digest=await crypto.subtle.digest("SHA-256",bytes);
+  const sha256=Array.from(new Uint8Array(digest),value=>value.toString(16).padStart(2,"0")).join("");
+  let binary="";
+  for(let offset=0;offset<bytes.length;offset+=32768)
+    binary+=String.fromCharCode(...bytes.subarray(offset,offset+32768));
+  const content_base64=btoa(binary);
+  await workerMutation(`/api/worker-jobs/${encodeURIComponent(job.job_id)}/result`,{
+    synthetic:true,worker_id:job.lease.worker_id,lease_id:job.lease.lease_id,
+    attempt:job.lease.attempt,outputs:[{
+      artifact_id:declaration.artifact_id,backend:declaration.backend,key:declaration.key,
+      sha256,size_bytes:bytes.byteLength,media_type:declaration.media_type,content_base64
+    }]
+  },button);
 }
 async function updateWorkerState(worker_id,state,button) {
   const director_id=await requestDirector(); if(!director_id) return;
@@ -1159,7 +1196,13 @@ def create_dashboard_server(
 
         def _handle_worker_action(self, path: str) -> None:
             try:
-                payload = self._read_payload()
+                payload = self._read_payload(
+                    max_bytes=(
+                        _MAX_WORKER_RESULT_REQUEST_BYTES
+                        if path.endswith("/result")
+                        else _MAX_REQUEST_BYTES
+                    )
+                )
                 if path == "/api/workers":
                     required = {
                         "director_id", "worker_id", "workloads", "state",
@@ -1262,13 +1305,19 @@ def create_dashboard_server(
                                 error_code=payload["error_code"],
                             )
                         else:
-                            required = {"worker_id", "lease_id", "attempt", "outputs"}
+                            required = {
+                                "worker_id", "lease_id", "attempt", "outputs", "synthetic"
+                            }
                             allowed = required | {"result_id", "completed_at"}
-                            if set(payload) - allowed or required - set(payload):
+                            if (
+                                set(payload) - allowed
+                                or required - set(payload)
+                                or payload["synthetic"] is not True
+                            ):
                                 raise WorkerQueueError("Worker result fields are missing or unsupported")
                             output_fields = {
                                 "artifact_id", "backend", "key", "sha256",
-                                "size_bytes", "media_type",
+                                "size_bytes", "media_type", "content_base64",
                             }
                             if not isinstance(payload["outputs"], list) or any(
                                 not isinstance(output, dict)
@@ -1278,6 +1327,35 @@ def create_dashboard_server(
                                 raise WorkerQueueError("Every output reference must have the exact declared metadata fields")
                             if type(payload["attempt"]) is not int:
                                 raise WorkerQueueError("Worker result attempt must be an integer")
+                            decoded_outputs: list[dict[str, Any]] = []
+                            for output in payload["outputs"]:
+                                encoded = output["content_base64"]
+                                if (
+                                    not isinstance(encoded, str)
+                                    or len(encoded) > _MAX_WORKER_OUTPUT_BYTES * 4 // 3 + 8
+                                ):
+                                    raise WorkerQueueError(
+                                        "Synthetic worker output exceeds the local upload limit"
+                                    )
+                                try:
+                                    content = base64.b64decode(encoded, validate=True)
+                                except (binascii.Error, UnicodeEncodeError, ValueError) as exc:
+                                    raise WorkerQueueError(
+                                        "Synthetic worker output must use valid base64 bytes"
+                                    ) from exc
+                                if len(content) > _MAX_WORKER_OUTPUT_BYTES:
+                                    raise WorkerQueueError(
+                                        "Synthetic worker output exceeds the local upload limit"
+                                    )
+                                decoded_outputs.append(
+                                    {
+                                        **{
+                                            key: value for key, value in output.items()
+                                            if key != "content_base64"
+                                        },
+                                        "content": content,
+                                    }
+                                )
                             completed_at = (
                                 parse_datetime(payload["completed_at"])
                                 if "completed_at" in payload
@@ -1288,7 +1366,7 @@ def create_dashboard_server(
                                 worker_id=payload["worker_id"],
                                 lease_id=payload["lease_id"],
                                 attempt=payload["attempt"],
-                                outputs=tuple(payload["outputs"]),
+                                outputs=tuple(decoded_outputs),
                                 result_id=payload.get("result_id"),
                                 completed_at=completed_at,
                             )
@@ -1297,6 +1375,8 @@ def create_dashboard_server(
                         return
                 self._send_json(200 if path != "/api/workers" else 201, result)
             except WorkerQueueError as exc:
+                self._send_json(400, {"error": str(exc)})
+            except ProjectError as exc:
                 self._send_json(400, {"error": str(exc)})
             except (ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
                 self._send_json(400, {"error": str(exc)})

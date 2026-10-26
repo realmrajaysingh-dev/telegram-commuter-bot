@@ -5,10 +5,17 @@ from __future__ import annotations
 from contextlib import contextmanager
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
+import base64
+import binascii
 import hashlib
+import hmac
 import json
+import os
 from pathlib import Path
+import re
 import sqlite3
+import stat
+import tempfile
 import threading
 from typing import Any, Iterator
 import uuid
@@ -77,6 +84,7 @@ class WorkerJobQueue:
         self._connection.row_factory = sqlite3.Row
         self._connection.execute("PRAGMA foreign_keys = ON")
         self._create_schema()
+        self._recover_artifact_storage(now=now or datetime.now(timezone.utc))
         self.recover_expired_leases(now=now)
 
     def close(self) -> None:
@@ -148,6 +156,64 @@ class WorkerJobQueue:
                     created_at TEXT NOT NULL,
                     PRIMARY KEY(job_id, artifact_id)
                 );
+                CREATE UNIQUE INDEX IF NOT EXISTS studio_worker_jobs_job_task_project
+                    ON studio_worker_jobs(job_id, task_id, project_id);
+                CREATE TABLE IF NOT EXISTS studio_worker_output_checks (
+                    check_id TEXT PRIMARY KEY,
+                    job_id TEXT NOT NULL,
+                    task_id TEXT NOT NULL,
+                    project_id TEXT NOT NULL,
+                    artifact_id TEXT NOT NULL,
+                    attempt INTEGER NOT NULL CHECK (attempt BETWEEN 0 AND 5),
+                    status TEXT NOT NULL CHECK (status IN (
+                        'awaiting_verification', 'verified', 'failed'
+                    )),
+                    expected_sha256 TEXT,
+                    actual_sha256 TEXT,
+                    expected_size_bytes INTEGER,
+                    actual_size_bytes INTEGER,
+                    error_code TEXT,
+                    checked_at TEXT NOT NULL,
+                    is_synthetic INTEGER NOT NULL DEFAULT 1 CHECK (is_synthetic = 1),
+                    FOREIGN KEY (job_id, task_id, project_id)
+                        REFERENCES studio_worker_jobs(job_id, task_id, project_id)
+                );
+                CREATE TABLE IF NOT EXISTS studio_worker_verified_outputs (
+                    job_id TEXT NOT NULL,
+                    task_id TEXT NOT NULL,
+                    project_id TEXT NOT NULL,
+                    artifact_id TEXT NOT NULL,
+                    storage_name TEXT NOT NULL UNIQUE,
+                    attempt INTEGER NOT NULL CHECK (attempt BETWEEN 1 AND 5),
+                    sha256 TEXT NOT NULL,
+                    size_bytes INTEGER NOT NULL CHECK (size_bytes > 0),
+                    media_type TEXT NOT NULL,
+                    verified_at TEXT NOT NULL,
+                    is_synthetic INTEGER NOT NULL DEFAULT 1 CHECK (is_synthetic = 1),
+                    PRIMARY KEY(job_id, artifact_id, attempt),
+                    FOREIGN KEY (job_id, task_id, project_id)
+                        REFERENCES studio_worker_jobs(job_id, task_id, project_id)
+                );
+                CREATE TRIGGER IF NOT EXISTS studio_worker_output_checks_no_update
+                BEFORE UPDATE ON studio_worker_output_checks
+                BEGIN
+                    SELECT RAISE(ABORT, 'worker output checks are immutable');
+                END;
+                CREATE TRIGGER IF NOT EXISTS studio_worker_output_checks_no_delete
+                BEFORE DELETE ON studio_worker_output_checks
+                BEGIN
+                    SELECT RAISE(ABORT, 'worker output checks are immutable');
+                END;
+                CREATE TRIGGER IF NOT EXISTS studio_worker_verified_outputs_no_update
+                BEFORE UPDATE ON studio_worker_verified_outputs
+                BEGIN
+                    SELECT RAISE(ABORT, 'verified worker outputs are immutable');
+                END;
+                CREATE TRIGGER IF NOT EXISTS studio_worker_verified_outputs_no_delete
+                BEFORE DELETE ON studio_worker_verified_outputs
+                BEGIN
+                    SELECT RAISE(ABORT, 'verified worker outputs are immutable');
+                END;
                 CREATE TABLE IF NOT EXISTS studio_worker_job_events (
                     job_id TEXT NOT NULL REFERENCES studio_worker_jobs(job_id),
                     sequence INTEGER NOT NULL,
@@ -196,6 +262,412 @@ class WorkerJobQueue:
                 ON studio_worker_jobs(task_id, created_at)
                 """
             )
+
+    def _artifact_directory(self) -> Path:
+        database_parent = self.database.parent.resolve()
+        root = database_parent / f".{self.database.name}.worker-artifacts"
+        try:
+            root.mkdir(mode=0o700, exist_ok=True)
+            root_stat = root.lstat()
+        except OSError as exc:
+            raise WorkerQueueError("Local worker artifact directory is unavailable") from exc
+        if not stat.S_ISDIR(root_stat.st_mode) or stat.S_ISLNK(root_stat.st_mode):
+            raise WorkerQueueError("Worker artifact directory must be a real directory")
+        try:
+            os.chmod(root, 0o700, follow_symlinks=False)
+        except OSError as exc:
+            raise WorkerQueueError("Worker artifact directory permissions could not be secured") from exc
+        resolved = root.resolve(strict=True)
+        if resolved.parent != database_parent:
+            raise WorkerQueueError("Worker artifact directory escaped its database directory")
+        return resolved
+
+    def _append_integrity_event(
+        self, record: JobRecord, *, event_type: str, actor_id: str,
+        now: datetime, details: dict[str, Any],
+    ) -> None:
+        previous_hash = (
+            record.audit_events[-1].event_hash if record.audit_events else "0" * 64
+        )
+        event_id = f"event-{len(record.audit_events) + 1}"
+        details_json = self._json(details)
+        created_at = self._timestamp(now)
+        material = (
+            f"{previous_hash}|{event_id}|{event_type}|{actor_id}|"
+            f"{created_at}|{details_json}"
+        )
+        event_hash = hashlib.sha256(material.encode("utf-8")).hexdigest()
+        self._connection.execute(
+            """
+            INSERT INTO studio_worker_job_events
+                (job_id, sequence, event_id, event_type, actor_id, created_at,
+                 details_json, previous_hash, event_hash)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                record.manifest.job_id,
+                len(record.audit_events) + 1,
+                event_id,
+                event_type,
+                actor_id,
+                created_at,
+                details_json,
+                previous_hash,
+                event_hash,
+            ),
+        )
+
+    def _record_output_check(
+        self,
+        record: JobRecord,
+        *,
+        artifact_id: str,
+        attempt: int,
+        status: str,
+        now: datetime,
+        expected_sha256: str | None = None,
+        actual_sha256: str | None = None,
+        expected_size_bytes: int | None = None,
+        actual_size_bytes: int | None = None,
+        error_code: str | None = None,
+    ) -> None:
+        check_attempt = 0 if status == "awaiting_verification" else attempt
+        if type(check_attempt) is not int or not 0 <= check_attempt <= 5:
+            raise WorkerQueueError("Worker output verification attempt is invalid")
+        self._connection.execute(
+            """
+            INSERT INTO studio_worker_output_checks
+                (check_id, job_id, task_id, project_id, artifact_id, attempt,
+                 status, expected_sha256, actual_sha256, expected_size_bytes,
+                 actual_size_bytes, error_code, checked_at, is_synthetic)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+            """,
+            (
+                f"check-{uuid.uuid4().hex}",
+                record.manifest.job_id,
+                record.manifest.task_id,
+                record.manifest.project_id,
+                artifact_id,
+                check_attempt,
+                status,
+                expected_sha256,
+                actual_sha256,
+                expected_size_bytes,
+                actual_size_bytes,
+                error_code,
+                self._timestamp(now),
+            ),
+        )
+
+    @staticmethod
+    def _output_error_code(message: str) -> str:
+        normalized = message.lower()
+        if "checksum" in normalized or "hash" in normalized:
+            return "output_checksum_mismatch"
+        if "empty" in normalized:
+            return "output_empty"
+        if "oversized" in normalized or "size" in normalized or "exceeds" in normalized:
+            return "output_size_invalid"
+        if "missing" in normalized:
+            return "output_missing"
+        if "duplicate" in normalized:
+            return "output_duplicate"
+        if "declared" in normalized or "ownership" in normalized or "association" in normalized:
+            return "output_association_invalid"
+        return "output_verification_failed"
+
+    @staticmethod
+    def _artifact_storage_name(job_id: str, artifact_id: str, attempt: int) -> str:
+        if (
+            not isinstance(job_id, str)
+            or not isinstance(artifact_id, str)
+            or type(attempt) is not int
+            or not 1 <= attempt <= 5
+        ):
+            raise WorkerQueueError("Worker output ownership reference is invalid")
+        return f"{job_id}.{artifact_id}.{attempt}.bin"
+
+    def _write_verified_output(
+        self,
+        *,
+        record: JobRecord,
+        artifact_id: str,
+        attempt: int,
+        content: bytes,
+        expected_sha256: str,
+        expected_size_bytes: int,
+        media_type: str,
+    ) -> tuple[str, str, int]:
+        declarations = {
+            item.artifact_id: item for item in record.manifest.output_artifacts
+        }
+        declaration = declarations.get(artifact_id)
+        if declaration is None:
+            raise WorkerQueueError("Worker output is not declared by this job")
+        if (
+            declaration.backend is not StorageBackend.LOCAL
+            or not isinstance(content, bytes)
+            or not isinstance(expected_sha256, str)
+            or not isinstance(expected_size_bytes, int)
+            or isinstance(expected_size_bytes, bool)
+        ):
+            raise WorkerQueueError("Worker output payload or metadata has an invalid type")
+        if (
+            not hmac.compare_digest(declaration.media_type, media_type)
+            or expected_size_bytes <= 0
+            or expected_size_bytes > declaration.max_bytes
+            or len(content) > declaration.max_bytes
+        ):
+            raise WorkerQueueError("Worker output is empty, oversized, or mismatches its declaration")
+        if len(content) != expected_size_bytes:
+            raise WorkerQueueError("Worker output size does not match its declared size")
+        used_output_bytes = self._connection.execute(
+            """
+            SELECT COALESCE(SUM(size_bytes), 0)
+            FROM studio_worker_verified_outputs WHERE job_id = ?
+            """,
+            (record.manifest.job_id,),
+        ).fetchone()[0]
+        input_bytes = sum(item.size_bytes for item in record.manifest.input_artifacts)
+        if (
+            used_output_bytes + len(content) + input_bytes
+            > record.manifest.resources.max_storage_bytes
+        ):
+            raise WorkerQueueError("Worker output exceeds the remaining job storage limit")
+        if not re.fullmatch(r"[a-f0-9]{64}", expected_sha256):
+            raise WorkerQueueError("Worker output checksum must be a lowercase SHA-256 digest")
+
+        actual_sha256 = hashlib.sha256(content).hexdigest()
+        if not hmac.compare_digest(actual_sha256, expected_sha256):
+            raise WorkerQueueError("Worker output checksum does not match its actual bytes")
+
+        root = self._artifact_directory()
+        storage_name = self._artifact_storage_name(
+            record.manifest.job_id, artifact_id, attempt
+        )
+        final_path = root / storage_name
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix="worker-output-staging-", dir=root
+        )
+        temporary_path = Path(temporary_name)
+        try:
+            with os.fdopen(descriptor, "wb", closefd=True) as artifact_file:
+                artifact_file.write(content)
+                artifact_file.flush()
+                os.fsync(artifact_file.fileno())
+            verification_descriptor = os.open(
+                temporary_path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+            )
+            try:
+                file_stat = os.fstat(verification_descriptor)
+                if not stat.S_ISREG(file_stat.st_mode):
+                    raise WorkerQueueError("Stored worker output is not a regular file")
+                if file_stat.st_size <= 0 or file_stat.st_size > declaration.max_bytes:
+                    raise WorkerQueueError("Stored worker output size is outside the permitted range")
+                digest = hashlib.sha256()
+                actual_size = 0
+                while True:
+                    chunk = os.read(verification_descriptor, 65_536)
+                    if not chunk:
+                        break
+                    digest.update(chunk)
+                    actual_size += len(chunk)
+                    if actual_size > declaration.max_bytes:
+                        raise WorkerQueueError("Stored worker output exceeds its size limit")
+            finally:
+                os.close(verification_descriptor)
+            verified_digest = digest.hexdigest()
+            if (
+                actual_size != expected_size_bytes
+                or not hmac.compare_digest(verified_digest, expected_sha256)
+            ):
+                raise WorkerQueueError("Stored worker output failed byte-level verification")
+            os.link(temporary_path, final_path, follow_symlinks=False)
+            temporary_path.unlink()
+            directory_descriptor = os.open(root, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+            try:
+                os.fsync(directory_descriptor)
+            finally:
+                os.close(directory_descriptor)
+            return storage_name, verified_digest, actual_size
+        except BaseException:
+            temporary_path.unlink(missing_ok=True)
+            raise
+
+    def _read_verified_output(
+        self, storage_name: str, *, expected_size_bytes: int, max_bytes: int
+    ) -> tuple[str, int]:
+        if (
+            not isinstance(storage_name, str)
+            or not re.fullmatch(
+                r"job-[A-Za-z0-9._-]{1,60}\.output-[A-Za-z0-9._-]{1,60}\.[1-5]\.bin",
+                storage_name,
+            )
+        ):
+            raise WorkerQueueError("Persisted worker artifact path is invalid")
+        root = self._artifact_directory()
+        path = root / storage_name
+        try:
+            path_stat = path.lstat()
+            if not stat.S_ISREG(path_stat.st_mode) or stat.S_ISLNK(path_stat.st_mode):
+                raise WorkerQueueError("Persisted worker artifact is not a regular file")
+            if path.resolve(strict=True).parent != root:
+                raise WorkerQueueError("Persisted worker artifact escaped its storage directory")
+            descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        except FileNotFoundError as exc:
+            raise WorkerQueueError("Persisted worker artifact is missing") from exc
+        except OSError as exc:
+            raise WorkerQueueError("Persisted worker artifact is unavailable") from exc
+        try:
+            file_stat = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(file_stat.st_mode)
+                or file_stat.st_size <= 0
+                or file_stat.st_size > max_bytes
+            ):
+                raise WorkerQueueError("Persisted worker artifact size is invalid")
+            digest = hashlib.sha256()
+            total = 0
+            while True:
+                chunk = os.read(descriptor, min(65_536, max_bytes + 1 - total))
+                if not chunk:
+                    break
+                digest.update(chunk)
+                total += len(chunk)
+                if total > max_bytes:
+                    raise WorkerQueueError("Persisted worker artifact exceeds its size limit")
+        finally:
+            os.close(descriptor)
+        if total != expected_size_bytes:
+            raise WorkerQueueError("Persisted worker artifact size has changed")
+        return digest.hexdigest(), total
+
+    def _recover_artifact_storage(self, *, now: datetime) -> None:
+        root = self._artifact_directory()
+        with self._transaction():
+            referenced = {
+                row["storage_name"]: row
+                for row in self._connection.execute(
+                    """
+                    SELECT output.*
+                    FROM studio_worker_verified_outputs AS output
+                    WHERE output.attempt = (
+                        SELECT MAX(latest.attempt)
+                        FROM studio_worker_verified_outputs AS latest
+                        WHERE latest.job_id = output.job_id
+                          AND latest.artifact_id = output.artifact_id
+                    )
+                    """
+                )
+            }
+            for entry in os.scandir(root):
+                if entry.name.startswith("worker-output-staging-"):
+                    try:
+                        if entry.is_file(follow_symlinks=False):
+                            Path(entry.path).unlink(missing_ok=True)
+                    except OSError as exc:
+                        raise WorkerQueueError(
+                            "Interrupted worker artifact could not be cleaned safely"
+                        ) from exc
+                    continue
+                if (
+                    re.fullmatch(
+                        r"job-[A-Za-z0-9._-]{1,60}\.output-[A-Za-z0-9._-]{1,60}\.[1-5]\.bin",
+                        entry.name,
+                    )
+                    and entry.name not in referenced
+                    and entry.is_file(follow_symlinks=False)
+                ):
+                    try:
+                        Path(entry.path).unlink(missing_ok=True)
+                    except OSError as exc:
+                        raise WorkerQueueError(
+                            "Uncommitted worker artifact could not be cleaned safely"
+                        ) from exc
+            for storage_name, output in referenced.items():
+                record = self._record(output["job_id"])
+                declarations = {
+                    item.artifact_id: item
+                    for item in record.manifest.output_artifacts
+                }
+                declaration = declarations.get(output["artifact_id"])
+                error_code = None
+                actual_digest = None
+                actual_size = None
+                if (
+                    declaration is None
+                    or output["task_id"] != record.manifest.task_id
+                    or output["project_id"] != record.manifest.project_id
+                    or output["storage_name"] != self._artifact_storage_name(
+                        record.manifest.job_id, output["artifact_id"], output["attempt"]
+                    )
+                    or output["media_type"] != declaration.media_type
+                    or output["size_bytes"] > declaration.max_bytes
+                ):
+                    error_code = "persisted_output_association_invalid"
+                else:
+                    try:
+                        actual_digest, actual_size = self._read_verified_output(
+                            storage_name,
+                            expected_size_bytes=output["size_bytes"],
+                            max_bytes=declaration.max_bytes,
+                        )
+                        if not hmac.compare_digest(actual_digest, output["sha256"]):
+                            error_code = "persisted_output_hash_mismatch"
+                    except WorkerQueueError as exc:
+                        error_code = (
+                            "persisted_output_missing"
+                            if "missing" in str(exc).lower()
+                            else "persisted_output_invalid"
+                        )
+                if error_code is None:
+                    continue
+                latest_check = self._connection.execute(
+                    """
+                    SELECT status FROM studio_worker_output_checks
+                    WHERE job_id = ? AND artifact_id = ?
+                    ORDER BY rowid DESC LIMIT 1
+                    """,
+                    (output["job_id"], output["artifact_id"]),
+                ).fetchone()
+                if latest_check is not None and latest_check["status"] == "failed":
+                    continue
+                self._record_output_check(
+                    record,
+                    artifact_id=output["artifact_id"],
+                    attempt=max(1, record.attempt_count),
+                    status="failed",
+                    now=now,
+                    expected_sha256=output["sha256"],
+                    actual_sha256=actual_digest,
+                    expected_size_bytes=output["size_bytes"],
+                    actual_size_bytes=actual_size,
+                    error_code=error_code,
+                )
+                self._append_integrity_event(
+                    record,
+                    event_type="output_integrity_failed",
+                    actor_id="local-integrity-check",
+                    now=now,
+                    details={
+                        "artifact_id": output["artifact_id"],
+                        "error_code": error_code,
+                    },
+                )
+                if record.state is JobState.SUCCEEDED:
+                    invalidated = JobRecord(
+                        manifest=record.manifest,
+                        state=JobState.FAILED,
+                        created_at=record.created_at,
+                        updated_at=now,
+                        attempt_count=record.attempt_count,
+                        authorization=record.authorization,
+                        lease=None,
+                        result=record.result,
+                        last_error=error_code,
+                        audit_events=record.audit_events,
+                    )
+                    self._save_transition(invalidated, len(record.audit_events))
     @staticmethod
     def _timestamp(value: datetime) -> str:
         return value.astimezone(timezone.utc).isoformat()
@@ -462,7 +934,7 @@ class WorkerJobQueue:
             UPDATE studio_worker_jobs
             SET state = ?, updated_at = ?, attempt_count = ?,
                 authorization_json = ?, lease_json = ?, result_json = ?,
-                result_id = ?, last_error = ?, output_verification = ?
+                result_id = ?, last_error = ?
             WHERE job_id = ?
             """,
             (
@@ -476,25 +948,9 @@ class WorkerJobQueue:
                 self._json(self._result_dict(record.result)) if record.result else None,
                 record.result.result_id if record.result else None,
                 record.last_error,
-                "unverified_metadata" if record.result else "none",
                 record.manifest.job_id,
             ),
         )
-        if record.result is not None and record.state is JobState.SUCCEEDED:
-            for artifact in record.result.outputs:
-                self._connection.execute(
-                    """
-                    INSERT INTO studio_worker_job_outputs
-                        (job_id, artifact_id, artifact_json, verification_status, created_at)
-                    VALUES (?, ?, ?, 'unverified_metadata', ?)
-                    """,
-                    (
-                        record.manifest.job_id,
-                        artifact.artifact_id,
-                        self._json(self._artifact_json(artifact)),
-                        self._timestamp(record.result.completed_at),
-                    ),
-                )
         self._append_events(record, previous_event_count)
 
     def _validate_task(
@@ -701,6 +1157,14 @@ class WorkerJobQueue:
                 ),
             )
             self._append_events(record, 0)
+            for declaration in manifest.output_artifacts:
+                self._record_output_check(
+                    record,
+                    artifact_id=declaration.artifact_id,
+                    attempt=0,
+                    status="awaiting_verification",
+                    now=current,
+                )
             return self._job_dict(record)
 
     def _get_director_for_task(self, manifest: JobManifest) -> str:
@@ -943,40 +1407,234 @@ class WorkerJobQueue:
         completed_at: datetime | None = None, now: datetime | None = None,
     ) -> dict[str, Any]:
         current = now or datetime.now(timezone.utc)
-        if self.get_record(job_id).state is JobState.SUCCEEDED:
-            raise WorkerQueueError("A result was already accepted for this job")
         timestamp = completed_at or current
-        record = self.get_record(job_id)
-        if record.lease is None:
-            raise WorkerQueueError("Worker job has no active lease")
-        result = JobResult(
-            result_id=result_id or f"result-{uuid.uuid4().hex}",
-            job_id=job_id,
-            lease_id=lease_id,
-            worker_id=worker_id,
-            attempt=attempt,
-            outputs=tuple(
-                ArtifactRef(
-                    artifact_id=item["artifact_id"],
-                    backend=StorageBackend(item["backend"]),
-                    key=item["key"],
-                    sha256=item["sha256"],
-                    size_bytes=item["size_bytes"],
-                    media_type=item["media_type"],
-                )
-                for item in outputs
-            ),
-            completed_at=timestamp,
-        )
-        with self._transaction():
-            record = self._record(job_id)
-            self._validate_job_task(record.manifest)
-            try:
-                updated = accept_result(record, result, now=current)
-            except ContractError as exc:
-                raise WorkerQueueError(str(exc)) from exc
-            self._save_transition(updated, len(record.audit_events))
-            return self._job_dict(updated)
+        if type(attempt) is not int or not isinstance(outputs, tuple):
+            raise WorkerQueueError("Worker result attempt and output collection have invalid types")
+
+        created_paths: list[Path] = []
+        verification_error: str | None = None
+        accepted_record: JobRecord | None = None
+        try:
+            with self._transaction():
+                record = self._record(job_id)
+                self._validate_job_task(record.manifest)
+                if record.state is JobState.SUCCEEDED:
+                    raise WorkerQueueError("A result was already accepted for this job")
+                lease = record.lease
+                if (
+                    record.state is not JobState.RUNNING
+                    or lease is None
+                    or worker_id != lease.worker_id
+                    or lease_id != lease.lease_id
+                    or attempt != lease.attempt
+                    or current >= lease.expires_at
+                ):
+                    raise WorkerQueueError("Worker result is stale or does not own the active lease")
+                if (
+                    not isinstance(timestamp, datetime)
+                    or timestamp.tzinfo is None
+                    or timestamp.utcoffset() is None
+                    or timestamp < lease.acquired_at
+                    or timestamp > current
+                    or timestamp > lease.expires_at
+                ):
+                    raise WorkerQueueError("Worker result completion is outside the active lease")
+
+                declarations = {
+                    item.artifact_id: item for item in record.manifest.output_artifacts
+                }
+                output_by_id: dict[str, dict[str, Any]] = {}
+                try:
+                    for item in outputs:
+                        required = {
+                            "artifact_id", "backend", "key", "sha256",
+                            "size_bytes", "media_type", "content",
+                        }
+                        if not isinstance(item, dict) or set(item) != required:
+                            raise WorkerQueueError(
+                                "Each worker output must include declared metadata and actual bytes"
+                            )
+                        artifact_id = item["artifact_id"]
+                        if not isinstance(artifact_id, str) or artifact_id not in declarations:
+                            raise WorkerQueueError("Worker output is not declared by this job")
+                        if artifact_id in output_by_id:
+                            raise WorkerQueueError("Worker result contains a duplicate output")
+                        declaration = declarations[artifact_id]
+                        if (
+                            item["backend"] != declaration.backend.value
+                            or item["key"] != declaration.key
+                            or item["media_type"] != declaration.media_type
+                        ):
+                            raise WorkerQueueError(
+                                "Worker output ownership or type does not match its declaration"
+                            )
+                        output_by_id[artifact_id] = item
+                    if set(output_by_id) != set(declarations):
+                        raise WorkerQueueError("Worker result is missing one or more declared output artifacts")
+                    if sum(len(item["content"]) for item in output_by_id.values()) > (
+                        record.manifest.resources.max_output_bytes
+                    ):
+                        raise WorkerQueueError("Worker result exceeds the aggregate output size limit")
+
+                    verified_refs: list[ArtifactRef] = []
+                    verified_material: list[tuple[dict[str, Any], OutputDeclaration, str, str, int]] = []
+                    for artifact_id, declaration in declarations.items():
+                        item = output_by_id[artifact_id]
+                        storage_name, digest, size_bytes = self._write_verified_output(
+                            record=record,
+                            artifact_id=artifact_id,
+                            attempt=attempt,
+                            content=item["content"],
+                            expected_sha256=item["sha256"],
+                            expected_size_bytes=item["size_bytes"],
+                            media_type=item["media_type"],
+                        )
+                        output_path = self._artifact_directory() / storage_name
+                        created_paths.append(output_path)
+                        verified_ref = ArtifactRef(
+                            artifact_id=artifact_id,
+                            backend=declaration.backend,
+                            key=declaration.key,
+                            sha256=digest,
+                            size_bytes=size_bytes,
+                            media_type=declaration.media_type,
+                        )
+                        verified_material.append(
+                            (item, declaration, storage_name, digest, size_bytes)
+                        )
+                        verified_refs.append(verified_ref)
+                    result = JobResult(
+                        result_id=result_id or f"result-{uuid.uuid4().hex}",
+                        job_id=job_id,
+                        lease_id=lease_id,
+                        worker_id=worker_id,
+                        attempt=attempt,
+                        outputs=tuple(verified_refs),
+                        completed_at=timestamp,
+                    )
+                    updated = accept_result(record, result, now=current)
+                    for item, declaration, storage_name, digest, size_bytes in verified_material:
+                        self._connection.execute(
+                            """
+                            INSERT INTO studio_worker_verified_outputs
+                                (job_id, task_id, project_id, artifact_id, storage_name,
+                                 attempt, sha256, size_bytes, media_type, verified_at,
+                                 is_synthetic)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+                            """,
+                            (
+                                job_id,
+                                record.manifest.task_id,
+                                record.manifest.project_id,
+                                declaration.artifact_id,
+                                storage_name,
+                                attempt,
+                                digest,
+                                size_bytes,
+                                declaration.media_type,
+                                self._timestamp(current),
+                            ),
+                        )
+                        self._record_output_check(
+                            record,
+                            artifact_id=declaration.artifact_id,
+                            attempt=attempt,
+                            status="verified",
+                            now=current,
+                            expected_sha256=item["sha256"],
+                            actual_sha256=digest,
+                            expected_size_bytes=item["size_bytes"],
+                            actual_size_bytes=size_bytes,
+                        )
+                    self._save_transition(updated, len(record.audit_events))
+                    self._append_integrity_event(
+                        updated,
+                        event_type="outputs_verified",
+                        actor_id=worker_id,
+                        now=current,
+                        details={
+                            "attempt": attempt,
+                            "outputs": [
+                                {
+                                    "artifact_id": declaration.artifact_id,
+                                    "sha256": digest,
+                                    "size_bytes": size_bytes,
+                                    "storage_name": storage_name,
+                                }
+                                for _, declaration, storage_name, digest, size_bytes
+                                in verified_material
+                            ],
+                        },
+                    )
+                    accepted_record = self._record(job_id)
+                except (WorkerQueueError, ContractError, TypeError, ValueError, KeyError, OSError) as exc:
+                    for output_path in created_paths:
+                        output_path.unlink(missing_ok=True)
+                    created_paths.clear()
+                    verification_error = str(exc)
+                    record = self._record(job_id)
+                    error_code = self._output_error_code(verification_error)
+                    failed_outputs: list[dict[str, Any]] = []
+                    for artifact_id in declarations:
+                        supplied = output_by_id.get(artifact_id, {})
+                        expected_hash = supplied.get("sha256")
+                        if (
+                            not isinstance(expected_hash, str)
+                            or not re.fullmatch(r"[a-f0-9]{64}", expected_hash)
+                        ):
+                            expected_hash = None
+                        expected_size = supplied.get("size_bytes")
+                        if type(expected_size) is not int or expected_size < 0:
+                            expected_size = None
+                        content = supplied.get("content")
+                        actual_hash = None
+                        actual_size = None
+                        if isinstance(content, bytes):
+                            actual_size = len(content)
+                            if actual_size <= declarations[artifact_id].max_bytes:
+                                actual_hash = hashlib.sha256(content).hexdigest()
+                        self._record_output_check(
+                            record,
+                            artifact_id=artifact_id,
+                            attempt=attempt,
+                            status="failed",
+                            now=current,
+                            expected_sha256=expected_hash,
+                            actual_sha256=actual_hash,
+                            expected_size_bytes=expected_size,
+                            actual_size_bytes=actual_size,
+                            error_code=error_code,
+                        )
+                        failed_outputs.append(
+                            {
+                                "artifact_id": artifact_id,
+                                "expected_sha256": expected_hash,
+                                "actual_sha256": actual_hash,
+                                "expected_size_bytes": expected_size,
+                                "actual_size_bytes": actual_size,
+                            }
+                        )
+                    self._append_integrity_event(
+                        record,
+                        event_type="output_verification_failed",
+                        actor_id=worker_id if isinstance(worker_id, str) else "unknown-worker",
+                        now=current,
+                        details={
+                            "attempt": attempt,
+                            "error_code": error_code,
+                            "reason": verification_error[:256],
+                            "outputs": failed_outputs,
+                        },
+                    )
+        except BaseException:
+            for output_path in created_paths:
+                output_path.unlink(missing_ok=True)
+            raise
+        if verification_error is not None:
+            raise WorkerQueueError(verification_error)
+        if accepted_record is None:
+            raise WorkerQueueError("Worker result was not accepted")
+        return self._job_dict(accepted_record)
 
     def retry(self, job_id: str, *, director_id: str, now: datetime | None = None) -> dict[str, Any]:
         current = now or datetime.now(timezone.utc)
@@ -1075,6 +1733,76 @@ class WorkerJobQueue:
             """,
             (record.manifest.job_id,),
         ).fetchall()
+        verified_rows = self._connection.execute(
+            """
+            SELECT output.artifact_id, output.storage_name, output.sha256,
+                   output.size_bytes, output.media_type, output.verified_at,
+                   output.attempt, output.is_synthetic
+            FROM studio_worker_verified_outputs AS output
+            WHERE output.job_id = ?
+              AND output.attempt = (
+                  SELECT MAX(latest.attempt)
+                  FROM studio_worker_verified_outputs AS latest
+                  WHERE latest.job_id = output.job_id
+                    AND latest.artifact_id = output.artifact_id
+              )
+            ORDER BY output.artifact_id
+            """,
+            (record.manifest.job_id,),
+        ).fetchall()
+        check_rows = self._connection.execute(
+            """
+            SELECT artifact_id, attempt, status, expected_sha256, actual_sha256,
+                   expected_size_bytes, actual_size_bytes, error_code, checked_at,
+                   is_synthetic
+            FROM studio_worker_output_checks
+            WHERE job_id = ? ORDER BY rowid
+            """,
+            (record.manifest.job_id,),
+        ).fetchall()
+        latest_checks: dict[str, sqlite3.Row] = {}
+        for check in check_rows:
+            latest_checks[check["artifact_id"]] = check
+        output_statuses = {
+            declaration.artifact_id: (
+                latest_checks[declaration.artifact_id]["status"]
+                if declaration.artifact_id in latest_checks
+                else "awaiting_verification"
+            )
+            for declaration in record.manifest.output_artifacts
+        }
+        if any(status == "failed" for status in output_statuses.values()):
+            output_verification = "failed"
+        elif output_statuses and all(status == "verified" for status in output_statuses.values()):
+            output_verification = "verified"
+        else:
+            output_verification = "awaiting_verification"
+        output_details = [
+            {
+                "artifact_id": item["artifact_id"],
+                "storage_name": item["storage_name"],
+                "sha256": item["sha256"],
+                "size_bytes": item["size_bytes"],
+                "media_type": item["media_type"],
+                "attempt": item["attempt"],
+                "verification_status": "verified",
+                "created_at": item["verified_at"],
+                "is_synthetic": bool(item["is_synthetic"]),
+            }
+            for item in verified_rows
+        ]
+        output_details.extend(
+            {
+                **json.loads(item["artifact_json"]),
+                "verification_status": item["verification_status"],
+                "created_at": item["created_at"],
+                "is_synthetic": True,
+            }
+            for item in output_rows
+            if item["artifact_id"] not in {
+                output["artifact_id"] for output in verified_rows
+            }
+        )
         return {
             "job_id": record.manifest.job_id,
             "idempotency_key": record.manifest.idempotency_key,
@@ -1117,17 +1845,23 @@ class WorkerJobQueue:
                 }
                 for item in record.manifest.output_artifacts
             ],
-            "outputs": [
+            "outputs": output_details,
+            "output_checks": [
                 {
-                    **json.loads(item["artifact_json"]),
-                    "verification_status": item["verification_status"],
-                    "created_at": item["created_at"],
+                    "artifact_id": item["artifact_id"],
+                    "attempt": item["attempt"],
+                    "status": item["status"],
+                    "expected_sha256": item["expected_sha256"],
+                    "actual_sha256": item["actual_sha256"],
+                    "expected_size_bytes": item["expected_size_bytes"],
+                    "actual_size_bytes": item["actual_size_bytes"],
+                    "error_code": item["error_code"],
+                    "checked_at": item["checked_at"],
+                    "is_synthetic": bool(item["is_synthetic"]),
                 }
-                for item in output_rows
+                for item in check_rows
             ],
-            "output_verification": (
-                "unverified_metadata" if record.result else "none"
-            ),
+            "output_verification": output_verification,
             "result": self._result_dict(record.result),
             "audit_events": [
                 {
@@ -1140,11 +1874,13 @@ class WorkerJobQueue:
         }
 
     def get_job(self, job_id: str) -> dict[str, Any]:
+        self._recover_artifact_storage(now=datetime.now(timezone.utc))
         with self._lock:
             return self._job_dict(self._record(job_id))
 
     def snapshot(self) -> dict[str, Any]:
         now = datetime.now(timezone.utc)
+        self._recover_artifact_storage(now=now)
         with self._lock:
             jobs = [
                 self._job_dict(self._record(row["job_id"]))
@@ -1173,8 +1909,9 @@ class WorkerJobQueue:
                 for worker in workers
             ),
             "output_notice": (
-                "Worker output references are unverified metadata only; they are not "
-                "files, Studio evidence, or accepted task results."
+                "Only locally stored byte-verified outputs are verified. Synthetic "
+                "fixtures are not rendered content or Studio evidence; legacy "
+                "metadata-only results remain awaiting verification."
             ),
         }
 
