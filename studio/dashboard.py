@@ -24,6 +24,7 @@ from .worker_contracts import WorkloadKind
 from .worker_handoff import (
     MAX_PACKAGE_BYTES,
     WorkerHandoffError,
+    build_handoff_diagnostic,
     export_job_package,
     import_result_package,
 )
@@ -180,6 +181,8 @@ _DASHBOARD_HTML = """<!doctype html>
       <p class="notice">No Colab, Drive, networking, or workload execution is connected. Manual JSON handoff packages use the current Director authorization and SQLite lease; imported output bytes are rechecked in controlled storage and remain separate from Studio task evidence.</p>
       <div id="worker-counts" class="project-counts"></div>
       <button id="recover-worker-jobs" type="button">Recover expired leases</button>
+      <button id="worker-diagnostic" type="button">Generate Local Handoff Diagnostic</button>
+      <pre id="worker-diagnostic-report" class="notice" aria-live="polite">Diagnostic is generated from persisted local task, job, output-verification, and audit state.</pre>
       <div class="worker-grid">
         <section>
           <h2>Register Simulated Worker</h2>
@@ -934,6 +937,15 @@ $("recover-worker-jobs").addEventListener("click",async event=>{
   } catch(error) { alert(`Worker recovery failed: ${error.message}`); }
   finally { button.disabled=false; }
 });
+$("worker-diagnostic").addEventListener("click",async event=>{
+  const button=event.currentTarget; button.disabled=true;
+  try {
+    const report=await api("/api/worker-handoff/diagnostic");
+    $("worker-diagnostic-report").textContent=JSON.stringify(report,null,2);
+  } catch(error) {
+    $("worker-diagnostic-report").textContent=`Diagnostic failed: ${error.message}`;
+  } finally { button.disabled=false; }
+});
 $("allocation-project").addEventListener("change",event=>{
   if(event.target.value) showProject(event.target.value);
   else refreshTaskPlan(null);
@@ -1057,6 +1069,12 @@ def create_dashboard_server(
                 try:
                     self._send_json(200, worker_queue.snapshot())
                 except WorkerQueueError as exc:
+                    self._send_json(400, {"error": str(exc)})
+                return
+            if parsed.path == "/api/worker-handoff/diagnostic":
+                try:
+                    self._send_json(200, build_handoff_diagnostic(worker_queue))
+                except (AllocationError, WorkerQueueError) as exc:
                     self._send_json(400, {"error": str(exc)})
                 return
             worker_job_match = re.fullmatch(

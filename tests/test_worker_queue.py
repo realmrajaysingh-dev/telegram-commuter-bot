@@ -621,6 +621,7 @@ class WorkerJobQueueTests(unittest.TestCase):
             self.assertIn("Import Worker Result Package", page)
             self.assertIn("worker identity DEMO / UNAUTHENTICATED", page)
             self.assertIn("Import rejected.", page)
+            self.assertIn("Generate Local Handoff Diagnostic", page)
 
             def post(path: str, payload: dict):
                 request = Request(
@@ -636,25 +637,61 @@ class WorkerJobQueueTests(unittest.TestCase):
                 f"/api/worker-jobs/{job['job_id']}/export",
                 {"director_id": DIRECTOR_ID, "worker_id": "simulated-worker"},
             )
-            declaration = exported["manifest"]["output_artifacts"][0]
-            handoff_now = datetime.fromisoformat(exported["exported_at"])
-            result = create_result_package(
-                exported,
-                ({"artifact_id": declaration["artifact_id"],
-                  "content": b"Dashboard handoff fixture"},),
-                now=handoff_now,
-                completed_at=handoff_now,
+            notebook = json.loads(
+                (ROOT / "notebooks" / "worker_handoff_offline.ipynb").read_text()
             )
-            imported = post(
-                f"/api/worker-jobs/{job['job_id']}/import-result",
-                {"director_id": DIRECTOR_ID, "package": result},
+            notebook_namespace = {}
+            exec(
+                compile(
+                    "".join(notebook["cells"][1]["source"]),
+                    "<offline-notebook-validator>",
+                    "exec",
+                ),
+                notebook_namespace,
             )
+            with tempfile.TemporaryDirectory() as directory, contextlib.chdir(directory):
+                result = notebook_namespace["make_result_package"](
+                    exported,
+                    "dashboard-result.json",
+                    now=datetime.now(timezone.utc),
+                )
+                self.assertEqual(read_package_file("dashboard-result.json"), result)
+
+            with self.assertRaises(HTTPError) as unauthorized:
+                post(
+                    f"/api/worker-jobs/{job['job_id']}/import-result",
+                    {"director_id": "unauthorized-director", "package": result},
+                )
+            unauthorized.exception.close()
+            try:
+                imported = post(
+                    f"/api/worker-jobs/{job['job_id']}/import-result",
+                    {"director_id": DIRECTOR_ID, "package": result},
+                )
+            except HTTPError as error:
+                self.fail(f"Dashboard result import failed: {error.read().decode()}")
             self.assertEqual(imported["state"], "succeeded")
             self.assertTrue(imported["outputs"][0]["is_synthetic"])
             self.assertEqual(
                 imported["audit_events"][-1]["event_type"],
                 "worker_result_package_imported",
             )
+            with urlopen(f"{base}/api/worker-handoff/diagnostic") as response:
+                diagnostic = json.loads(response.read())
+            diagnostic_json = json.dumps(diagnostic)
+            handoff = next(item for item in diagnostic["jobs"] if item["job_id"] == job["job_id"])
+            self.assertEqual(diagnostic["mode"], "local_only")
+            self.assertTrue(handoff["stages"]["package_exported"])
+            self.assertTrue(handoff["stages"]["result_imported"])
+            self.assertTrue(handoff["stages"]["output_verified"])
+            self.assertTrue(handoff["stages"]["audit_valid"])
+            self.assertTrue(handoff["synthetic_result"])
+            self.assertFalse(handoff["worker_identity_authenticated"])
+            self.assertFalse(handoff["stages"]["task_completed"])
+            self.assertEqual(handoff["task_state"], "active")
+            self.assertNotIn("last_error", diagnostic_json)
+            self.assertNotIn("content_base64", diagnostic_json)
+            self.assertNotIn("audit_events", diagnostic_json)
             with self.assertRaises(HTTPError) as response_error:
                 post(
                     f"/api/worker-jobs/{job['job_id']}/import-result",

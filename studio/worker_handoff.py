@@ -850,3 +850,125 @@ def import_result_package_file(
     return import_result_package(
         queue, read_package_file(path), director_id=director_id, now=now
     )
+
+
+def build_handoff_diagnostic(
+    queue: WorkerJobQueue, *, now: datetime | None = None
+) -> dict[str, Any]:
+    """Build a sanitized lifecycle report from persisted Studio and queue state."""
+    current = _aware_now(now)
+    snapshot = queue.snapshot()
+    jobs: list[dict[str, Any]] = []
+    stage_counts = {
+        "job_created": 0,
+        "plan_approved": 0,
+        "director_authorized": 0,
+        "package_exported": 0,
+        "result_imported": 0,
+        "output_verified": 0,
+        "lease_recovery_observed": 0,
+        "task_completed": 0,
+        "audit_valid": 0,
+    }
+    for job in snapshot["jobs"]:
+        event_types = {
+            event["event_type"] for event in job["audit_events"]
+        }
+        plan = queue.allocation.get_plan_for_project(job["project_id"])
+        task = next(
+            (
+                item for item in (plan["tasks"] if plan else [])
+                if item["task_id"] == job["task_id"]
+            ),
+            None,
+        )
+        if task is None:
+            task_status = "missing"
+            assessment = None
+        else:
+            task_status = task["status"]
+            assessment = task["assessment_state"]
+        audit_valid = queue.verify_audit_chain(job["job_id"])
+        stages = {
+            "job_created": True,
+            "plan_approved": bool(plan and plan["status"] == "approved"),
+            "director_authorized": job["authorization"] is not None,
+            "package_exported": "worker_package_exported" in event_types,
+            "result_imported": "worker_result_package_imported" in event_types,
+            "output_verified": job["output_verification"] == "verified",
+            "lease_recovery_observed": bool(
+                {"job_interrupted", "job_requeued"} & event_types
+            ),
+            "task_completed": task_status == "completed",
+            "audit_valid": audit_valid,
+        }
+        for stage, passed in stages.items():
+            stage_counts[stage] += int(passed)
+        warnings: list[str] = []
+        if not stages["plan_approved"]:
+            warnings.append("plan_not_approved")
+        if not stages["director_authorized"]:
+            warnings.append("director_authorization_required")
+        if job["state"] in {"failed", "interrupted"}:
+            warnings.append("worker_recovery_or_director_retry_may_be_required")
+        if job["output_verification"] == "failed":
+            warnings.append("output_verification_failed")
+        if not audit_valid:
+            warnings.append("audit_chain_invalid")
+        if task is None:
+            warnings.append("linked_task_missing")
+        elif assessment and assessment["unresolved_disagreement"]:
+            warnings.append("task_observer_disagreement_unresolved")
+        elif assessment and assessment["has_block"]:
+            warnings.append("task_has_blocking_observer_assessment")
+        elif task_status != "completed":
+            warnings.append("studio_task_review_and_completion_still_pending")
+        jobs.append(
+            {
+                "job_id": job["job_id"],
+                "project_id": job["project_id"],
+                "task_id": job["task_id"],
+                "job_state": job["state"],
+                "attempt_count": job["attempt_count"],
+                "max_attempts": job["max_attempts"],
+                "task_state": task_status,
+                "task_evidence_verified": bool(task and task["evidence_verified"]),
+                "observer_disagreement_unresolved": bool(
+                    assessment and assessment["unresolved_disagreement"]
+                ),
+                "observer_block_present": bool(assessment and assessment["has_block"]),
+                "output_verification": job["output_verification"],
+                "synthetic_result": bool(
+                    job["outputs"]
+                    and all(output["is_synthetic"] for output in job["outputs"])
+                ),
+                "worker_identity_authenticated": False,
+                "stages": stages,
+                "warnings": warnings,
+            }
+        )
+    completed = sum(
+        job["job_state"] == "succeeded"
+        and job["output_verification"] == "verified"
+        and job["stages"]["plan_approved"]
+        and job["stages"]["director_authorized"]
+        and job["stages"]["package_exported"]
+        and job["stages"]["result_imported"]
+        and job["stages"]["audit_valid"]
+        for job in jobs
+    )
+    return {
+        "report_version": 1,
+        "generated_at": current.astimezone(timezone.utc).isoformat(),
+        "mode": "local_only",
+        "provenance": "DEMO / UNAUTHENTICATED worker assertions; no real compute is verified",
+        "job_total": len(jobs),
+        "verified_handoff_completions": completed,
+        "stage_counts": stage_counts,
+        "jobs": jobs,
+        "limitations": [
+            "No external worker, Colab, or Drive identity is authenticated.",
+            "Synthetic worker output is not media production or Studio task evidence.",
+            "Task completion still requires the existing evidence, observer, and Director review gates.",
+        ],
+    }

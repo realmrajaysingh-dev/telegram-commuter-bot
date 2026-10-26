@@ -476,3 +476,39 @@ Python module compilation, notebook JSON/code-cell syntax validation, and
 `git diff --check` passed. Session 07.7 readiness: **PASS** for the local,
 manual, synthetic-only handoff; actual Colab/Drive integration and
 authenticated workers remain out of scope.
+
+## Session 07.8 — Offline end-to-end lifecycle and diagnostic
+
+The Dashboard-to-notebook-to-Dashboard regression now exercises the complete
+manual flow against the existing SQLite queue: export a Director-authorized
+job package, run the offline notebook's actual validator and deterministic
+synthetic result generator, reject an unauthorized import, and accept the
+result through the existing Director-controlled import route. The queue
+persists the accepted output only after its existing declaration, lease,
+ownership, actual-byte, size, and SHA-256 checks. The integration test
+confirms a successful worker job leaves its linked Studio task active rather
+than bypassing task evidence, review, Observer disagreement, or Director
+completion gates.
+
+The local diagnostic is generated from persisted queue, linked plan/task,
+output-verification, and hash-chain state. Its versioned JSON reports only
+whitelisted identifiers and enums, counts for lifecycle stages, fixed warning
+codes, explicit unauthenticated/synthetic provenance, and completion-gate
+limitations. It excludes raw failure messages, evidence contents, result
+bytes, and audit payloads. The Dashboard displays the report on demand; no
+external transport or diagnostic persistence was added.
+
+Lease interruption and requeue events are surfaced as a lifecycle stage, and
+attempt counts plus current failure/recovery status remain visible. Existing
+state transitions and retry limits are unchanged. These checks demonstrate
+offline integration only: the asserted worker and Director IDs are not
+cryptographically authenticated, and no Colab, Drive, GPU inference, FFmpeg,
+or real media workflow is connected.
+
+**Verification:** the final command
+`PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -v` completed
+with **141 tests passing**, no failures, and no reported warnings. The
+focused worker queue/handoff module passed all **33 tests**. Session 07.8
+readiness: **PASS** for the local, synthetic-only, Director-controlled
+lifecycle; authenticated remote workers and real Colab/Drive integration
+remain blockers for a future milestone.

@@ -326,3 +326,35 @@ Python module compilation, notebook JSON/code-cell syntax validation, and
 `git diff --check` passed. Session 07.7 readiness: **PASS** for the local,
 manual, synthetic-only handoff; actual Colab/Drive integration and
 authenticated workers remain out of scope.
+
+## Session 07.8 — Offline end-to-end worker integration
+
+The existing approved-task eligibility, Director authorization, verified
+evidence packaging, schema-v2 handoff validation, notebook-side deterministic
+synthetic result generation, Director-controlled import, queue byte/hash
+verification, retry/recovery, and task/Observer gates were retained. No second
+queue, approval service, or artifact store was introduced.
+
+The dashboard now has a local persisted-state diagnostic endpoint and
+display. Its versioned report summarizes job/plan authorization, package
+export/import, output verification, lease-recovery events, audit-chain
+validity, Studio task status, and Observer disagreement/block state. The
+report uses a whitelist of status fields and fixed warning codes; it omits
+artifact contents, package bytes, raw error details, and audit payloads.
+Synthetic output remains explicitly unauthenticated and cannot satisfy Studio
+task completion.
+
+The dashboard integration regression now executes the actual offline notebook
+scaffold to generate a result package, checks Director denial, imports the
+result through the dashboard route, confirms byte-verified persisted success,
+and asserts the task remains active with completion gates intact. Diagnostic
+assertions cover persisted lifecycle accuracy and sensitive-field exclusion.
+No Session 07.1–07.7 regression was found during this integration.
+
+**Verification:** focused notebook-to-dashboard regression passed, as did the
+worker queue/handoff module (**33 tests**). The final command
+`PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -v` completed
+with **141 tests passing**, no failures, and no reported warnings. Session
+07.8 readiness: **PASS** for the local, synthetic-only, Director-controlled
+lifecycle; real Colab/Drive connectivity and authenticated remote identities
+remain out of scope.
