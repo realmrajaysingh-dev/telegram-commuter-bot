@@ -21,6 +21,8 @@ import uuid
 from .models import (
     AssignmentManifest,
     MAX_ASSIGNMENT_HORIZON,
+    ObserverAssessment,
+    ObserverReport,
     StudioError,
     parse_datetime,
     validate_assignment,
@@ -569,6 +571,54 @@ class TaskAllocationEngine:
                     subject_id TEXT NOT NULL,
                     evidence_json TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS studio_allocation_assessments (
+                    assessment_id TEXT PRIMARY KEY,
+                    plan_id TEXT NOT NULL REFERENCES studio_task_plans(plan_id),
+                    task_id TEXT NOT NULL REFERENCES studio_allocation_tasks(task_id),
+                    assessor_role_id TEXT NOT NULL,
+                    assessor_role_title TEXT NOT NULL,
+                    assessment TEXT NOT NULL CHECK (assessment IN ('clear', 'concern', 'block')),
+                    evidence_fingerprint TEXT NOT NULL,
+                    evidence_json TEXT NOT NULL,
+                    finding TEXT NOT NULL,
+                    is_synthetic INTEGER NOT NULL DEFAULT 1 CHECK (is_synthetic = 1),
+                    identity_verified INTEGER NOT NULL DEFAULT 0 CHECK (identity_verified = 0),
+                    created_at TEXT NOT NULL,
+                    UNIQUE(task_id, evidence_fingerprint, assessor_role_id)
+                );
+                CREATE TABLE IF NOT EXISTS studio_allocation_resolutions (
+                    resolution_id TEXT PRIMARY KEY,
+                    plan_id TEXT NOT NULL REFERENCES studio_task_plans(plan_id),
+                    task_id TEXT NOT NULL REFERENCES studio_allocation_tasks(task_id),
+                    evidence_fingerprint TEXT NOT NULL,
+                    assessment_set_hash TEXT NOT NULL,
+                    director_id TEXT NOT NULL,
+                    decision TEXT NOT NULL CHECK (decision IN ('accept', 'request_revision', 'reject')),
+                    rationale TEXT NOT NULL,
+                    assessment_ids_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    UNIQUE(task_id, evidence_fingerprint, assessment_set_hash)
+                );
+                CREATE TRIGGER IF NOT EXISTS studio_allocation_assessments_no_update
+                BEFORE UPDATE ON studio_allocation_assessments
+                BEGIN
+                    SELECT RAISE(ABORT, 'task assessments are immutable');
+                END;
+                CREATE TRIGGER IF NOT EXISTS studio_allocation_assessments_no_delete
+                BEFORE DELETE ON studio_allocation_assessments
+                BEGIN
+                    SELECT RAISE(ABORT, 'task assessments are immutable');
+                END;
+                CREATE TRIGGER IF NOT EXISTS studio_allocation_resolutions_no_update
+                BEFORE UPDATE ON studio_allocation_resolutions
+                BEGIN
+                    SELECT RAISE(ABORT, 'task resolutions are immutable');
+                END;
+                CREATE TRIGGER IF NOT EXISTS studio_allocation_resolutions_no_delete
+                BEFORE DELETE ON studio_allocation_resolutions
+                BEGIN
+                    SELECT RAISE(ABORT, 'task resolutions are immutable');
+                END;
                 CREATE TABLE IF NOT EXISTS studio_allocation_audit_events (
                     sequence INTEGER PRIMARY KEY AUTOINCREMENT,
                     plan_id TEXT NOT NULL REFERENCES studio_task_plans(plan_id),
@@ -1064,20 +1114,6 @@ class TaskAllocationEngine:
                                 f"Evidence type {evidence_type} has already been submitted"
                             )
 
-                prior_artifacts = self._connection.execute(
-                    """
-                    SELECT * FROM studio_evidence_artifacts
-                    WHERE task_id = ? AND evidence_type = ?
-                    """,
-                    (task_id, evidence_type),
-                ).fetchall()
-                for row in prior_artifacts:
-                    valid, _ = self._verify_artifact_file(dict(row), task_id)
-                    if valid:
-                        raise AllocationError(
-                            f"Evidence type {evidence_type} has already been submitted"
-                        )
-
                 evidence_root = self._evidence_directory()
                 artifact_id = secrets.token_hex(16)
                 storage_name = f"{artifact_id}.txt"
@@ -1243,6 +1279,175 @@ class TaskAllocationEngine:
             "findings": findings,
         }
 
+    @staticmethod
+    def _evidence_fingerprint(validation: dict[str, Any]) -> str:
+        material = [
+            {
+                "artifact_id": artifact["artifact_id"],
+                "evidence_type": artifact["evidence_type"],
+                "sha256": artifact["sha256"],
+            }
+            for artifact in validation["artifacts"]
+            if artifact["verified"]
+        ]
+        return hashlib.sha256(_json(material).encode("utf-8")).hexdigest()
+
+    def _task_assessment_state(
+        self, task: dict[str, Any], validation: dict[str, Any]
+    ) -> dict[str, Any]:
+        fingerprint = self._evidence_fingerprint(validation)
+        history_rows = self._connection.execute(
+            """
+            SELECT * FROM studio_allocation_assessments
+            WHERE task_id = ?
+            ORDER BY created_at, assessment_id
+            """,
+            (task["task_id"],),
+        ).fetchall()
+        assessment_history = [dict(row) for row in history_rows]
+        reports = [
+            report for report in assessment_history
+            if report["evidence_fingerprint"] == fingerprint
+        ]
+        assessment_ids = sorted(report["assessment_id"] for report in reports)
+        assessment_set_hash = hashlib.sha256(
+            _json(
+                [
+                    {
+                        "assessment_id": report["assessment_id"],
+                        "assessor_role_id": report["assessor_role_id"],
+                        "assessment": report["assessment"],
+                        "evidence_json": report["evidence_json"],
+                        "finding": report["finding"],
+                    }
+                    for report in reports
+                ]
+            ).encode("utf-8")
+        ).hexdigest()
+        resolution_row = self._connection.execute(
+            """
+            SELECT * FROM studio_allocation_resolutions
+            WHERE task_id = ? AND evidence_fingerprint = ? AND assessment_set_hash = ?
+            """,
+            (task["task_id"], fingerprint, assessment_set_hash),
+        ).fetchone()
+        resolution = dict(resolution_row) if resolution_row else None
+        resolution_history = [
+            dict(row)
+            for row in self._connection.execute(
+                """
+                SELECT * FROM studio_allocation_resolutions
+                WHERE task_id = ? ORDER BY created_at, resolution_id
+                """,
+                (task["task_id"],),
+            )
+        ]
+        ratings = {report["assessment"] for report in reports}
+        has_block = ObserverAssessment.BLOCK.value in ratings
+        requires_resolution = (
+            len(ratings) > 1
+            or ObserverAssessment.CONCERN.value in ratings
+            or has_block
+        )
+        resolution_accepted = bool(
+            resolution
+            and resolution["decision"] == "accept"
+            and not has_block
+        )
+        complete = bool(
+            len(reports) >= 2
+            and not has_block
+            and (
+                (not requires_resolution and ratings == {ObserverAssessment.CLEAR.value})
+                or resolution_accepted
+            )
+        )
+        return {
+            "evidence_fingerprint": fingerprint,
+            "assessment_set_hash": assessment_set_hash,
+            "assessments": [
+                {
+                    "assessment_id": report["assessment_id"],
+                    "assessor_role_id": report["assessor_role_id"],
+                    "assessor_role_title": report["assessor_role_title"],
+                    "assessment": report["assessment"],
+                    "evidence_refs": json.loads(report["evidence_json"]),
+                    "finding": report["finding"],
+                    "is_synthetic": bool(report["is_synthetic"]),
+                    "identity_verified": bool(report["identity_verified"]),
+                    "created_at": report["created_at"],
+                }
+                for report in reports
+            ],
+            "history": [
+                {
+                    "assessment_id": report["assessment_id"],
+                    "assessor_role_id": report["assessor_role_id"],
+                    "assessor_role_title": report["assessor_role_title"],
+                    "assessment": report["assessment"],
+                    "evidence_refs": json.loads(report["evidence_json"]),
+                    "finding": report["finding"],
+                    "evidence_fingerprint": report["evidence_fingerprint"],
+                    "is_current": report["evidence_fingerprint"] == fingerprint,
+                    "is_synthetic": bool(report["is_synthetic"]),
+                    "identity_verified": bool(report["identity_verified"]),
+                    "created_at": report["created_at"],
+                }
+                for report in assessment_history
+            ],
+            "resolution": (
+                {
+                    "resolution_id": resolution["resolution_id"],
+                    "director_id": resolution["director_id"],
+                    "decision": resolution["decision"],
+                    "rationale": resolution["rationale"],
+                    "assessment_ids": json.loads(resolution["assessment_ids_json"]),
+                    "created_at": resolution["created_at"],
+                }
+                if resolution
+                else None
+            ),
+            "resolution_history": [
+                {
+                    "resolution_id": item["resolution_id"],
+                    "director_id": item["director_id"],
+                    "decision": item["decision"],
+                    "rationale": item["rationale"],
+                    "assessment_ids": json.loads(item["assessment_ids_json"]),
+                    "created_at": item["created_at"],
+                    "is_current": (
+                        item["evidence_fingerprint"] == fingerprint
+                        and item["assessment_set_hash"] == assessment_set_hash
+                    ),
+                }
+                for item in resolution_history
+            ],
+            "assessor_roles": [
+                {
+                    "role_id": role.role_id,
+                    "title": role.title,
+                }
+                for role in self.registry.all_roles()
+                if role.role_id != task["role_id"]
+                and role.role_id not in {report["assessor_role_id"] for report in reports}
+            ],
+            "required_assessments": 2,
+            "assessment_count": len(reports),
+            "has_block": has_block,
+            "requires_resolution": requires_resolution,
+            "unresolved_disagreement": requires_resolution and resolution is None,
+            "can_resolve": (
+                len(reports) >= 2
+                and requires_resolution
+                and resolution is None
+            ),
+            "completion_eligible": complete,
+            "source_notice": (
+                "Synthetic local role assertions; identities are not authenticated "
+                "and these records are not genuine independent verification."
+            ),
+        }
+
     def get_plan(self, plan_id: str) -> dict[str, Any]:
         with self._lock:
             plan = self._plan_row(plan_id)
@@ -1273,6 +1478,7 @@ class TaskAllocationEngine:
                 task["evidence_artifacts"] = validation["artifacts"]
                 task["evidence_errors"] = validation["errors"]
                 task["evidence_verified"] = validation["is_valid"]
+                task["assessment_state"] = self._task_assessment_state(task, validation)
                 task["retryable"] = bool(task["retryable"])
             counts = {status.value: 0 for status in AllocationTaskStatus}
             for task in tasks:
@@ -1289,6 +1495,17 @@ class TaskAllocationEngine:
             plan["manifest"] = manifest.to_dict()
             plan["project"] = project
             plan["tasks"] = tasks
+            plan["resolution_queue"] = [
+                {
+                    "task_id": task["task_id"],
+                    "title": task["title"],
+                    "status": task["status"],
+                    "assessment_state": task["assessment_state"],
+                }
+                for task in tasks
+                if task["assessment_state"]["unresolved_disagreement"]
+                or task["assessment_state"]["can_resolve"]
+            ]
             plan["counts"] = counts
             plan["observer"] = self._latest_observer(plan_id)
             plan["approvals"] = self._approval_rows(plan_id)
@@ -1382,6 +1599,13 @@ class TaskAllocationEngine:
                 """,
                 (AllocationTaskStatus.READY.value, _timestamp(current), plan_id),
             )
+            self._audit(
+                plan_id, plan_id, "task_plan_approved", actor,
+                {"plan_hash": plan_hash, "ready_task_count": sum(
+                    not json.loads(task["dependencies_json"]) for task in tasks
+                )},
+                current,
+            )
             for task in tasks:
                 if not json.loads(task["dependencies_json"]):
                     self._audit(
@@ -1390,13 +1614,6 @@ class TaskAllocationEngine:
                         {"reason": "plan_approved", "status": AllocationTaskStatus.READY.value},
                         current,
                     )
-            self._audit(
-                plan_id, plan_id, "task_plan_approved", actor,
-                {"plan_hash": plan_hash, "ready_task_count": sum(
-                    not json.loads(task["dependencies_json"]) for task in tasks
-                )},
-                current,
-            )
             self._refresh_observer(plan_id, now=current)
         return self.get_plan(plan_id)
 
@@ -1568,6 +1785,245 @@ class TaskAllocationEngine:
                 )
         return self.get_plan(plan["plan_id"])
 
+    def submit_task_assessment(
+        self,
+        task_id: str,
+        *,
+        assessor_role_id: str,
+        report: ObserverReport,
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
+        current = now or datetime.now(timezone.utc)
+        if not isinstance(report, ObserverReport):
+            raise AllocationError("A structured ObserverReport is required")
+        if not isinstance(assessor_role_id, str) or not _ID_PATTERN.fullmatch(assessor_role_id):
+            raise AllocationError("Assessor identity must be a registered role ID")
+        if not isinstance(report.assessment, ObserverAssessment):
+            raise AllocationError("Assessment type must be clear, concern, or block")
+        if (
+            not isinstance(report.finding, str)
+            or not report.finding.strip()
+            or len(report.finding) > 2000
+        ):
+            raise AllocationError("Assessment finding is required and limited to 2000 characters")
+        if (
+            not isinstance(report.evidence_refs, tuple)
+            or not report.evidence_refs
+            or any(not isinstance(reference, str) for reference in report.evidence_refs)
+            or len(set(report.evidence_refs)) != len(report.evidence_refs)
+        ):
+            raise AllocationError("Assessment must reference unique task evidence artifacts")
+
+        with self._lock, self._connection:
+            task = self._task_row(task_id)
+            try:
+                assessor = self.registry.get(assessor_role_id)
+            except RegistryError as exc:
+                raise AllocationError("Assessor must be a registered functional role") from exc
+            if report.observer_id != assessor_role_id:
+                raise AllocationError("Assessment identity must match the submitting registered role")
+            if assessor.role_id == task["role_id"]:
+                raise AllocationError("Task authors cannot assess their own task")
+            plan = self._plan_row(task["plan_id"])
+            self._require_active_plan(plan, now=current)
+            if task["status"] not in {
+                AllocationTaskStatus.REVIEW.value,
+                AllocationTaskStatus.BLOCKED.value,
+            }:
+                raise AllocationError("Assessments require a task in Review or disagreement block")
+            validation = self._validate_task_evidence(task)
+            if not validation["is_valid"]:
+                raise AllocationError(
+                    "Assessment requires valid task evidence: "
+                    + ", ".join(validation["errors"])
+                )
+            before = self._task_assessment_state(task, validation)
+            if (
+                task["status"] == AllocationTaskStatus.BLOCKED.value
+                and not before["unresolved_disagreement"]
+            ):
+                raise AllocationError(
+                    "Only a task blocked by an unresolved assessment disagreement may receive another assessment"
+                )
+            verified_ids = {
+                artifact["artifact_id"]
+                for artifact in validation["artifacts"]
+                if artifact["verified"]
+            }
+            if not set(report.evidence_refs) <= verified_ids:
+                raise AllocationError(
+                    "Assessment evidence references must belong to this task and pass artifact verification"
+                )
+            fingerprint = before["evidence_fingerprint"]
+            assessment_id = "assessment-" + uuid.uuid4().hex
+            try:
+                self._connection.execute(
+                    """
+                    INSERT INTO studio_allocation_assessments
+                        (assessment_id, plan_id, task_id, assessor_role_id,
+                         assessor_role_title, assessment, evidence_fingerprint,
+                         evidence_json, finding, is_synthetic, identity_verified,
+                         created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?)
+                    """,
+                    (
+                        assessment_id, plan["plan_id"], task_id, assessor.role_id,
+                        assessor.title, report.assessment.value, fingerprint,
+                        _json(report.evidence_refs), report.finding.strip(),
+                        _timestamp(current),
+                    ),
+                )
+            except sqlite3.IntegrityError as exc:
+                raise AllocationError(
+                    "This registered role has already assessed the current task evidence"
+                ) from exc
+
+            after = self._task_assessment_state(task, validation)
+            self._audit(
+                plan["plan_id"], task_id, "allocation_task_assessment_submitted",
+                assessor.role_id,
+                {
+                    "assessment_id": assessment_id,
+                    "assessor_role_id": assessor.role_id,
+                    "assessment": report.assessment.value,
+                    "evidence_fingerprint": fingerprint,
+                    "evidence_refs": list(report.evidence_refs),
+                    "finding": report.finding.strip(),
+                    "is_synthetic": True,
+                    "identity_verified": False,
+                    "assessment_count": after["assessment_count"],
+                },
+                current,
+            )
+            if after["unresolved_disagreement"] or after["has_block"]:
+                if task["status"] != AllocationTaskStatus.BLOCKED.value:
+                    self._connection.execute(
+                        "UPDATE studio_allocation_tasks SET status = ?, updated_at = ? WHERE task_id = ?",
+                        (AllocationTaskStatus.BLOCKED.value, _timestamp(current), task_id),
+                    )
+                self._audit(
+                    plan["plan_id"], task_id, "allocation_task_assessment_disagreement",
+                    ALLOCATION_OBSERVER_ID,
+                    {
+                        "assessment_ids": [
+                            item["assessment_id"] for item in after["assessments"]
+                        ],
+                        "assessment_types": sorted(
+                            {item["assessment"] for item in after["assessments"]}
+                        ),
+                        "evidence_fingerprint": fingerprint,
+                        "status": AllocationTaskStatus.BLOCKED.value,
+                    },
+                    current,
+                )
+        return self.get_plan(plan["plan_id"])
+
+    def resolve_task_assessment_disagreement(
+        self,
+        task_id: str,
+        *,
+        director_id: str,
+        decision: str,
+        rationale: str,
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
+        actor = self._require_director(director_id)
+        if not isinstance(decision, str) or decision not in {
+            "accept", "request_revision", "reject"
+        }:
+            raise AllocationError("Director decision must be accept, request_revision, or reject")
+        if (
+            not isinstance(rationale, str)
+            or not rationale.strip()
+            or len(rationale) > 2000
+        ):
+            raise AllocationError("Director resolution rationale is required and limited to 2000 characters")
+        current = now or datetime.now(timezone.utc)
+        with self._lock, self._connection:
+            task = self._task_row(task_id)
+            plan = self._plan_row(task["plan_id"])
+            self._require_active_plan(plan, now=current)
+            if plan["approved_by"] != actor:
+                raise AllocationError(
+                    "Only the Director who approved this task plan may resolve its assessment disagreement"
+                )
+            if task["status"] != AllocationTaskStatus.BLOCKED.value:
+                raise AllocationError("Only a disagreement-blocked task may be resolved")
+            validation = self._validate_task_evidence(task)
+            if not validation["is_valid"]:
+                raise AllocationError("Disagreement resolution requires verified task evidence")
+            state = self._task_assessment_state(task, validation)
+            if not state["unresolved_disagreement"]:
+                raise AllocationError("No unresolved assessment disagreement requires a Director decision")
+            if decision == "accept" and state["has_block"]:
+                raise AllocationError("A blocking assessment cannot be overridden by Director resolution")
+            assessment_ids = [item["assessment_id"] for item in state["assessments"]]
+            resolution_id = "resolution-" + uuid.uuid4().hex
+            try:
+                self._connection.execute(
+                    """
+                    INSERT INTO studio_allocation_resolutions
+                        (resolution_id, plan_id, task_id, evidence_fingerprint,
+                         assessment_set_hash, director_id, decision, rationale,
+                         assessment_ids_json, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        resolution_id, plan["plan_id"], task_id,
+                        state["evidence_fingerprint"], state["assessment_set_hash"],
+                        actor, decision, rationale.strip(), _json(assessment_ids),
+                        _timestamp(current),
+                    ),
+                )
+            except sqlite3.IntegrityError as exc:
+                if "UNIQUE constraint failed" not in str(exc):
+                    raise AllocationError("Director resolution could not be persisted") from exc
+                raise AllocationError(
+                    "This assessment set already has an immutable Director resolution"
+                ) from exc
+            resulting_status = (
+                AllocationTaskStatus.REVIEW.value
+                if decision == "accept" and not state["has_block"]
+                else (
+                    AllocationTaskStatus.ACTIVE.value
+                    if decision == "request_revision"
+                    else AllocationTaskStatus.BLOCKED.value
+                )
+            )
+            if decision == "request_revision":
+                self._connection.execute(
+                    """
+                    UPDATE studio_allocation_tasks
+                    SET status = ?, evidence_json = '[]', updated_at = ?
+                    WHERE task_id = ?
+                    """,
+                    (resulting_status, _timestamp(current), task_id),
+                )
+            else:
+                self._connection.execute(
+                    "UPDATE studio_allocation_tasks SET status = ?, updated_at = ? WHERE task_id = ?",
+                    (resulting_status, _timestamp(current), task_id),
+                )
+            self._audit(
+                plan["plan_id"], task_id, "allocation_task_assessment_resolved",
+                actor,
+                {
+                    "resolution_id": resolution_id,
+                    "decision": decision,
+                    "rationale": rationale.strip(),
+                    "assessment_ids": assessment_ids,
+                    "assessment_set_hash": state["assessment_set_hash"],
+                    "superseded_artifact_ids": (
+                        json.loads(task["evidence_json"])
+                        if decision == "request_revision"
+                        else []
+                    ),
+                    "resulting_status": resulting_status,
+                },
+                current,
+            )
+        return self.get_plan(plan["plan_id"])
+
     def complete_task(
         self,
         task_id: str,
@@ -1587,13 +2043,22 @@ class TaskAllocationEngine:
             if task["status"] == AllocationTaskStatus.COMPLETED.value:
                 return self.get_plan(plan["plan_id"])
             self._require_active_plan(plan, now=current)
+            validation = self._validate_task_evidence(task)
+            assessment_state = self._task_assessment_state(task, validation)
+            if task["status"] == AllocationTaskStatus.BLOCKED.value and (
+                assessment_state["unresolved_disagreement"] or assessment_state["has_block"]
+            ):
+                raise AllocationError("Task completion is blocked by unresolved independent assessments")
             if task["status"] != AllocationTaskStatus.REVIEW.value:
                 raise AllocationError("Only review tasks can be completed")
-            validation = self._validate_task_evidence(task)
             if not validation["is_valid"]:
                 raise AllocationError(
                     "Task cannot be completed without verified evidence artifacts: "
                     + ", ".join(validation["errors"])
+                )
+            if not assessment_state["completion_eligible"]:
+                raise AllocationError(
+                    "Task requires two distinct registered-role assessments; unresolved concern or disagreement requires Director resolution"
                 )
             observer_report = self._refresh_observer(plan["plan_id"], now=current)
             if not observer_report["is_clear"]:

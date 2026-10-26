@@ -12,6 +12,7 @@ from urllib.parse import parse_qs, urlparse
 
 from .allocation import MAX_EVIDENCE_BYTES, AllocationError, TaskAllocationEngine
 from .issues import IssueEngine, IssueError, IssueNotFound
+from .models import ObserverAssessment, ObserverReport
 from .observer import ObserverError
 from .pipeline import ProjectError, ProjectNotFound, ProjectPipeline
 from .registry import RoleRegistry
@@ -316,6 +317,15 @@ function renderTaskPlan(plan) {
     }
     item.append(el("p",`Verification gates: ${task.verification_gates.join(" · ")}`));
     if(task.last_error_code) item.append(el("p",`Last failure: ${task.last_error_code}${task.retryable?" · retryable":""}`,"notice"));
+    const assessmentState=task.assessment_state;
+    item.append(el("p",`Submitted task assessments: ${assessmentState.assessment_count}/${assessmentState.required_assessments}${assessmentState.unresolved_disagreement?" · UNRESOLVED DISAGREEMENT":""}${assessmentState.has_block?" · BLOCKING ASSESSMENT":""}`,assessmentState.unresolved_disagreement||assessmentState.has_block?"notice":"muted"));
+    item.append(el("p",assessmentState.source_notice,"notice"));
+    for(const assessment of assessmentState.history) {
+      item.append(el("p",`${assessment.is_current?"Current":"Historical"} · ${assessment.assessor_role_id} · ${assessment.assessor_role_title} · ${assessment.assessment.toUpperCase()} · ${assessment.finding} · Evidence: ${assessment.evidence_refs.join(", ")}`,assessment.assessment==="block"?"notice":"muted"));
+    }
+    for(const resolution of assessmentState.resolution_history) {
+      item.append(el("p",`${resolution.is_current?"Current":"Historical"} · Director ${resolution.director_id} · ${resolution.decision.toUpperCase()} · ${resolution.rationale} · ${resolution.created_at}`,resolution.decision==="reject"||resolution.decision==="request_revision"?"notice":"muted"));
+    }
     const verifiedTypes=new Set(task.evidence_artifacts.filter(artifact=>artifact.verified).map(artifact=>artifact.evidence_type));
     const missingEvidence=task.evidence_requirements.filter(type=>!verifiedTypes.has(type));
     if(missingEvidence.length&&["active","review"].includes(task.status)) {
@@ -353,6 +363,30 @@ function renderTaskPlan(plan) {
       } else {
         item.append(el("p","Completion blocked: provide genuine evidence, then submit the task for review again.","notice"));
       }
+    }
+    if(["review","blocked"].includes(task.status)&&task.evidence_verified&&!task.observer_review_pending&&assessmentState.assessor_roles.length) {
+      const assessor=el("select");
+      for(const role of assessmentState.assessor_roles) assessor.append(new Option(`${role.role_id} · ${role.title}`,role.role_id));
+      const assessment=el("select");
+      for(const value of ["clear","concern","block"]) assessment.append(new Option(value.toUpperCase(),value));
+      const finding=el("textarea"); finding.maxLength=2000; finding.placeholder="Assessment finding (required)";
+      const evidence=el("select"); evidence.multiple=true;
+      for(const artifact of task.evidence_artifacts.filter(value=>value.verified))
+        evidence.append(new Option(`${artifact.evidence_type} · ${artifact.artifact_id}`,artifact.artifact_id));
+      const submit=el("button","Submit Assessment"); submit.type="button";
+      submit.addEventListener("click",()=>submitTaskAssessment(task,assessor.value,assessment.value,[...evidence.selectedOptions].map(option=>option.value),finding.value,submit));
+      item.append(el("p","Choose a different registered functional role. Role identity is locally asserted and unauthenticated; these assessment records are synthetic, not genuine independent verification.","notice"),assessor,assessment,finding,evidence,submit);
+    }
+    if(assessmentState.can_resolve) {
+      const decision=el("select");
+      if(!assessmentState.has_block) decision.append(new Option("Accept assessment outcome","accept"));
+      decision.append(new Option("Request task revision","request_revision"),new Option("Reject; remain blocked","reject"));
+      const rationale=el("textarea"); rationale.maxLength=2000; rationale.placeholder="Director rationale (required)";
+      const resolve=el("button","Record Director Resolution"); resolve.type="button";
+      resolve.addEventListener("click",()=>resolveTaskAssessmentDisagreement(task,decision.value,rationale.value,resolve));
+      item.append(el("p","Director resolution queue · inspect all assessments and supporting artifact references. A BLOCK assessment cannot be accepted; request revision or reject instead.","notice"),decision,rationale,resolve);
+    } else if(assessmentState.has_block) {
+      item.append(el("p","Blocking assessments cannot be overridden. The approving Director may request revision; then submit new evidence and obtain new assessments.","notice"));
     }
     if(task.status==="blocked"&&task.observer_review_pending) {
       const directorReview=el("button","Director Review Observer Block"); directorReview.type="button";
@@ -441,6 +475,13 @@ async function completeAllocationTask(task,button) {
 async function reviewObserverBlock(task,button) {
   const director_id=await requestDirector(); if(!director_id) return;
   await allocationTaskAction(task.task_id,"director-review",{director_id},button);
+}
+async function submitTaskAssessment(task,assessor_role_id,assessment,evidence_refs,finding,button) {
+  await allocationTaskAction(task.task_id,"assess",{assessor_role_id,assessment,evidence_refs,finding},button);
+}
+async function resolveTaskAssessmentDisagreement(task,decision,rationale,button) {
+  const director_id=await requestDirector(); if(!director_id) return;
+  await allocationTaskAction(task.task_id,"resolve-disagreement",{director_id,decision,rationale},button);
 }
 async function reportAllocationTaskFailure(task,button) {
   const error_code=window.prompt("Failure code (uppercase identifier; no sensitive details):");
@@ -720,7 +761,7 @@ def create_dashboard_server(
             path = urlparse(self.path).path
             if path == "/api/task-plans" or re.fullmatch(
                 r"/api/(?:task-plans/[A-Za-z0-9][A-Za-z0-9._-]{0,63}/(?:approve|extend|observer)|"
-                r"allocation-tasks/[A-Za-z0-9][A-Za-z0-9._-]{0,63}/(?:evidence|start|review|complete|fail|retry|director-review))",
+                r"allocation-tasks/[A-Za-z0-9][A-Za-z0-9._-]{0,63}/(?:evidence|start|review|complete|fail|retry|director-review|assess|resolve-disagreement))",
                 path,
             ):
                 self._handle_allocation_action(path)
@@ -817,7 +858,7 @@ def create_dashboard_server(
                     return
 
                 task_action = re.fullmatch(
-                    r"/api/allocation-tasks/([A-Za-z0-9][A-Za-z0-9._-]{0,63})/(evidence|start|review|complete|fail|retry|director-review)",
+                    r"/api/allocation-tasks/([A-Za-z0-9][A-Za-z0-9._-]{0,63})/(evidence|start|review|complete|fail|retry|director-review|assess|resolve-disagreement)",
                     path,
                 )
                 if not task_action:
@@ -842,6 +883,35 @@ def create_dashboard_server(
                         raise AllocationError("Only the approving Director ID is accepted")
                     result = task_allocation.review_observer_block(
                         task_id, director_id=payload["director_id"]
+                    )
+                elif operation == "assess":
+                    if set(payload) != {
+                        "assessor_role_id", "assessment", "evidence_refs", "finding"
+                    }:
+                        raise AllocationError("Assessment role, type, evidence references, and finding are required")
+                    try:
+                        assessment_type = ObserverAssessment(payload["assessment"])
+                        evidence_refs = tuple(payload["evidence_refs"])
+                    except (TypeError, ValueError) as exc:
+                        raise AllocationError("Assessment type or evidence references are invalid") from exc
+                    result = task_allocation.submit_task_assessment(
+                        task_id,
+                        assessor_role_id=payload["assessor_role_id"],
+                        report=ObserverReport(
+                            observer_id=payload["assessor_role_id"],
+                            assessment=assessment_type,
+                            evidence_refs=evidence_refs,
+                            finding=payload["finding"],
+                        ),
+                    )
+                elif operation == "resolve-disagreement":
+                    if set(payload) != {"director_id", "decision", "rationale"}:
+                        raise AllocationError("Director ID, decision, and rationale are required")
+                    result = task_allocation.resolve_task_assessment_disagreement(
+                        task_id,
+                        director_id=payload["director_id"],
+                        decision=payload["decision"],
+                        rationale=payload["rationale"],
                     )
                 elif operation == "evidence":
                     if set(payload) != {"actor_id", "evidence_type", "content"}:

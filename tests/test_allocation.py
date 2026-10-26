@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 from pathlib import Path
+import sqlite3
 import tempfile
 import threading
 import unittest
@@ -18,6 +19,7 @@ from studio.allocation import (
 )
 from studio.dashboard import create_dashboard_server
 from studio.issues import IssueEngine
+from studio.models import ObserverAssessment, ObserverReport
 from studio.pipeline import ProjectPipeline
 from studio.registry import RoleRegistry
 
@@ -117,6 +119,28 @@ class TaskAllocationTests(unittest.TestCase):
             now=NOW,
         )
         return self.first_task(result, task["task_key"])
+
+    def submit_task_assessment(
+        self,
+        task: dict,
+        assessor_role_id: str,
+        assessment: ObserverAssessment,
+        *,
+        finding: str = "Reviewed required evidence against the task criteria.",
+        evidence_refs: tuple[str, ...] | None = None,
+    ) -> dict:
+        refs = evidence_refs or tuple(task["evidence"])
+        return self.allocation.submit_task_assessment(
+            task["task_id"],
+            assessor_role_id=assessor_role_id,
+            report=ObserverReport(
+                observer_id=assessor_role_id,
+                assessment=assessment,
+                evidence_refs=refs,
+                finding=finding,
+            ),
+            now=NOW,
+        )
 
     def test_valid_project_plan_uses_registered_roles_and_persists_requirements(self) -> None:
         project = self.create_project()
@@ -301,6 +325,22 @@ class TaskAllocationTests(unittest.TestCase):
         )
         self.assertEqual(self.first_task(review, "research_scope")["status"], "review")
         self.assertTrue(self.first_task(review, "research_scope")["evidence_verified"])
+        with self.assertRaisesRegex(AllocationError, "two distinct registered-role assessments"):
+            self.allocation.complete_task(
+                first["task_id"], director_id=DIRECTOR_ID, now=NOW
+            )
+        task_for_assessment = self.first_task(review, "research_scope")
+        reviewed_once = self.submit_task_assessment(
+            task_for_assessment, "D02-R03", ObserverAssessment.CLEAR
+        )
+        reviewed_twice = self.submit_task_assessment(
+            self.first_task(reviewed_once, "research_scope"),
+            "D03-R09",
+            ObserverAssessment.CLEAR,
+        )
+        self.assertTrue(
+            self.first_task(reviewed_twice, "research_scope")["assessment_state"]["completion_eligible"]
+        )
         with self.assertRaisesRegex(AllocationError, "configured local Director"):
             self.allocation.complete_task(
                 first["task_id"], director_id=first["role_id"], now=NOW
@@ -490,11 +530,244 @@ class TaskAllocationTests(unittest.TestCase):
         reviewed = self.allocation.submit_task_for_review(
             task["task_id"], actor_id=task["role_id"], now=NOW
         )
+        reviewed_task = self.first_task(reviewed, "research_scope")
+        reviewed = self.submit_task_assessment(
+            reviewed_task, "D02-R03", ObserverAssessment.CLEAR
+        )
+        reviewed = self.submit_task_assessment(
+            self.first_task(reviewed, "research_scope"),
+            "D03-R09",
+            ObserverAssessment.CLEAR,
+        )
         completed = self.allocation.complete_task(
             task["task_id"], director_id=DIRECTOR_ID, now=NOW
         )
         self.assertEqual(self.first_task(reviewed, "research_scope")["status"], "review")
         self.assertEqual(self.first_task(completed, "research_scope")["status"], "completed")
+
+    def test_assessment_requires_valid_independent_registered_role_and_artifact_refs(self) -> None:
+        _, task = self.activate_task()
+        self.submit_artifact(task, content="Evidence for assessment validation.")
+        reviewed = self.allocation.submit_task_for_review(
+            task["task_id"], actor_id=task["role_id"], now=NOW
+        )
+        task = self.first_task(reviewed, "research_scope")
+        report = ObserverReport(
+            observer_id="D02-R03",
+            assessment=ObserverAssessment.CLEAR,
+            evidence_refs=tuple(task["evidence"]),
+            finding="Reviewed the evidence.",
+        )
+        with self.assertRaisesRegex(AllocationError, "cannot assess their own task"):
+            self.allocation.submit_task_assessment(
+                task["task_id"],
+                assessor_role_id=task["role_id"],
+                report=ObserverReport(
+                    observer_id=task["role_id"],
+                    assessment=ObserverAssessment.CLEAR,
+                    evidence_refs=tuple(task["evidence"]),
+                    finding="Self-review attempt.",
+                ),
+                now=NOW,
+            )
+        with self.assertRaisesRegex(AllocationError, "registered functional role"):
+            self.allocation.submit_task_assessment(
+                task["task_id"], assessor_role_id="D99-R99", report=report, now=NOW
+            )
+        with self.assertRaisesRegex(AllocationError, "identity must match"):
+            self.allocation.submit_task_assessment(
+                task["task_id"], assessor_role_id="D03-R09", report=report, now=NOW
+            )
+        second_project = self.create_project()
+        second_plan = self.approve(self.create_plan(project=second_project))
+        other_task = self.first_task(second_plan, "research_scope")
+        self.allocation.start_task(
+            other_task["task_id"], actor_id=other_task["role_id"], now=NOW
+        )
+        other_task = self.submit_artifact(
+            self.first_task(
+                self.allocation.get_plan(second_plan["plan_id"]), "research_scope"
+            ),
+            content="Artifact belongs to another task.",
+        )
+        with self.assertRaisesRegex(AllocationError, "must belong to this task"):
+            self.submit_task_assessment(
+                task,
+                "D02-R03",
+                ObserverAssessment.CLEAR,
+                evidence_refs=tuple(other_task["evidence"]),
+            )
+        with self.assertRaisesRegex(AllocationError, "Assessment type"):
+            self.allocation.submit_task_assessment(
+                task["task_id"],
+                assessor_role_id="D02-R03",
+                report=ObserverReport(
+                    observer_id="D02-R03",
+                    assessment="invented",  # type: ignore[arg-type]
+                    evidence_refs=tuple(task["evidence"]),
+                    finding="Invalid assessment enum.",
+                ),
+                now=NOW,
+            )
+
+    def test_conflicting_assessments_block_completion_until_audited_director_resolution(self) -> None:
+        plan, task = self.activate_task()
+        self.submit_artifact(task, content="Evidence subject to two synthetic assessments.")
+        review = self.allocation.submit_task_for_review(
+            task["task_id"], actor_id=task["role_id"], now=NOW
+        )
+        first = self.submit_task_assessment(
+            self.first_task(review, "research_scope"),
+            "D02-R03",
+            ObserverAssessment.CLEAR,
+            finding="No criterion-level issue found.",
+        )
+        conflict = self.submit_task_assessment(
+            self.first_task(first, "research_scope"),
+            "D03-R09",
+            ObserverAssessment.CONCERN,
+            finding="A source limitation needs Director attention.",
+        )
+        conflicted_task = self.first_task(conflict, "research_scope")
+        state = conflicted_task["assessment_state"]
+        self.assertEqual(conflicted_task["status"], "blocked")
+        self.assertTrue(state["unresolved_disagreement"])
+        self.assertTrue(state["can_resolve"])
+        self.assertTrue(all(item["is_synthetic"] for item in state["assessments"]))
+        self.assertTrue(all(not item["identity_verified"] for item in state["assessments"]))
+        self.assertIn(task["task_id"], {item["task_id"] for item in conflict["resolution_queue"]})
+        with self.assertRaisesRegex(AllocationError, "unresolved independent assessments"):
+            self.allocation.complete_task(
+                task["task_id"], director_id=DIRECTOR_ID, now=NOW
+            )
+        with self.assertRaisesRegex(AllocationError, "configured local Director"):
+            self.allocation.resolve_task_assessment_disagreement(
+                task["task_id"],
+                director_id="not-a-director",
+                decision="accept",
+                rationale="I reviewed both reports and supporting evidence.",
+                now=NOW,
+            )
+        with self.assertRaisesRegex(AllocationError, "rationale is required"):
+            self.allocation.resolve_task_assessment_disagreement(
+                task["task_id"],
+                director_id=DIRECTOR_ID,
+                decision="accept",
+                rationale=" ",
+                now=NOW,
+            )
+
+        resolved = self.allocation.resolve_task_assessment_disagreement(
+            task["task_id"],
+            director_id=DIRECTOR_ID,
+            decision="accept",
+            rationale="Reviewed both synthetic role assertions and the cited artifact; accept this task for completion.",
+            now=NOW,
+        )
+        resolved_task = self.first_task(resolved, "research_scope")
+        self.assertEqual(resolved_task["status"], "review")
+        self.assertFalse(resolved_task["assessment_state"]["unresolved_disagreement"])
+        self.assertEqual(
+            resolved_task["assessment_state"]["resolution"]["decision"], "accept"
+        )
+        with self.assertRaisesRegex(AllocationError, "already assessed"):
+            self.submit_task_assessment(
+                resolved_task,
+                "D02-R03",
+                ObserverAssessment.CLEAR,
+            )
+        completed = self.allocation.complete_task(
+            task["task_id"], director_id=DIRECTOR_ID, now=NOW
+        )
+        self.assertEqual(self.first_task(completed, "research_scope")["status"], "completed")
+        self.assertEqual(len(completed["tasks"][0]["assessment_state"]["assessments"]), 2)
+        assessment_id = state["assessments"][0]["assessment_id"]
+        resolution_id = resolved_task["assessment_state"]["resolution"]["resolution_id"]
+        with self.assertRaisesRegex(sqlite3.IntegrityError, "immutable"):
+            with self.allocation._connection:
+                self.allocation._connection.execute(
+                    "UPDATE studio_allocation_assessments SET finding=? WHERE assessment_id=?",
+                    ("altered", assessment_id),
+                )
+        with self.assertRaisesRegex(sqlite3.IntegrityError, "immutable"):
+            with self.allocation._connection:
+                self.allocation._connection.execute(
+                    "DELETE FROM studio_allocation_resolutions WHERE resolution_id=?",
+                    (resolution_id,),
+                )
+        self.allocation.close()
+        self.allocation = TaskAllocationEngine(
+            self.database, self.registry, {DIRECTOR_ID}
+        )
+        persisted = self.allocation.get_plan(plan["plan_id"])
+        persisted_task = self.first_task(persisted, "research_scope")
+        self.assertEqual(len(persisted_task["assessment_state"]["history"]), 2)
+        self.assertEqual(len(persisted_task["assessment_state"]["resolution_history"]), 1)
+        self.assertTrue(self.allocation.verify_audit_chain())
+
+    def test_block_assessment_cannot_be_overridden_by_director_acceptance(self) -> None:
+        _, task = self.activate_task()
+        self.submit_artifact(task, content="Evidence with a blocking assessment.")
+        review = self.allocation.submit_task_for_review(
+            task["task_id"], actor_id=task["role_id"], now=NOW
+        )
+        reviewed = self.submit_task_assessment(
+            self.first_task(review, "research_scope"),
+            "D02-R03",
+            ObserverAssessment.BLOCK,
+        )
+        reviewed = self.submit_task_assessment(
+            self.first_task(reviewed, "research_scope"),
+            "D03-R09",
+            ObserverAssessment.CLEAR,
+        )
+        blocked = self.first_task(reviewed, "research_scope")
+        self.assertEqual(blocked["status"], "blocked")
+        self.assertTrue(blocked["assessment_state"]["has_block"])
+        self.assertTrue(blocked["assessment_state"]["can_resolve"])
+        with self.assertRaisesRegex(AllocationError, "cannot be overridden"):
+            self.allocation.resolve_task_assessment_disagreement(
+                task["task_id"],
+                director_id=DIRECTOR_ID,
+                decision="accept",
+                rationale="Attempt to override blocking assessment.",
+                now=NOW,
+            )
+        revised = self.allocation.resolve_task_assessment_disagreement(
+            task["task_id"],
+            director_id=DIRECTOR_ID,
+            decision="request_revision",
+            rationale="The blocking assessment requires revised task evidence.",
+            now=NOW,
+        )
+        revised_task = self.first_task(revised, "research_scope")
+        self.assertEqual(revised_task["status"], "active")
+        self.assertEqual(revised_task["evidence"], [])
+        self.assertEqual(len(revised_task["assessment_state"]["history"]), 2)
+        self.submit_artifact(
+            revised_task, content="Revised evidence after Director request."
+        )
+        revised_review = self.allocation.submit_task_for_review(
+            task["task_id"], actor_id=task["role_id"], now=NOW
+        )
+        revised_task = self.first_task(revised_review, "research_scope")
+        revised_review = self.submit_task_assessment(
+            revised_task, "D02-R03", ObserverAssessment.CLEAR
+        )
+        revised_review = self.submit_task_assessment(
+            self.first_task(revised_review, "research_scope"),
+            "D03-R09",
+            ObserverAssessment.CLEAR,
+        )
+        assessment_state = self.first_task(
+            revised_review, "research_scope"
+        )["assessment_state"]
+        self.assertEqual(assessment_state["assessment_count"], 2)
+        self.assertEqual(len(assessment_state["history"]), 4)
+        self.assertEqual(len(assessment_state["resolution_history"]), 1)
+        self.assertEqual(
+            sum(item["is_current"] for item in assessment_state["history"]), 2
+        )
 
     def test_review_task_can_supply_real_evidence_then_must_be_reviewed_again(self) -> None:
         plan, task = self.activate_task()
@@ -694,6 +967,48 @@ class TaskAllocationTests(unittest.TestCase):
             with urlopen(review_request, timeout=3) as response:
                 reviewed = json.loads(response.read())
             self.assertEqual(self.first_task(reviewed, "research_scope")["status"], "review")
+            artifact_id = self.first_task(
+                reviewed, "research_scope"
+            )["evidence_artifacts"][0]["artifact_id"]
+            for role_id, assessment_type in (
+                ("D02-R03", "clear"),
+                ("D03-R09", "concern"),
+            ):
+                assess_request = Request(
+                    f"{base}/api/allocation-tasks/{task['task_id']}/assess",
+                    data=json.dumps({
+                        "assessor_role_id": role_id,
+                        "assessment": assessment_type,
+                        "evidence_refs": [artifact_id],
+                        "finding": "Dashboard test synthetic assessment.",
+                    }).encode(),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urlopen(assess_request, timeout=3) as response:
+                    reviewed = json.loads(response.read())
+            self.assertEqual(
+                self.first_task(reviewed, "research_scope")["assessment_state"]["assessment_count"],
+                2,
+            )
+            self.assertTrue(
+                self.first_task(reviewed, "research_scope")["assessment_state"]["unresolved_disagreement"]
+            )
+            resolution_request = Request(
+                f"{base}/api/allocation-tasks/{task['task_id']}/resolve-disagreement",
+                data=json.dumps({
+                    "director_id": DIRECTOR_ID,
+                    "decision": "accept",
+                    "rationale": "Dashboard test Director reviewed both assessment records.",
+                }).encode(),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urlopen(resolution_request, timeout=3) as response:
+                reviewed = json.loads(response.read())
+            self.assertEqual(
+                self.first_task(reviewed, "research_scope")["status"], "review"
+            )
             complete_request = Request(
                 f"{base}/api/allocation-tasks/{task['task_id']}/complete",
                 data=json.dumps({"director_id": DIRECTOR_ID}).encode(),
@@ -707,6 +1022,8 @@ class TaskAllocationTests(unittest.TestCase):
                 "completed",
             )
             self.assertIn("Director Accept & Complete", page)
+            self.assertIn("Submit Assessment", page)
+            self.assertIn("UNRESOLVED DISAGREEMENT", page)
             with urlopen(f"{base}/api/dashboard") as response:
                 issue_snapshot = json.loads(response.read())
             self.assertIn(issue["issue_id"], {item["issue_id"] for item in issue_snapshot["issues"]})
