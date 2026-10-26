@@ -35,6 +35,7 @@ from studio.worker_handoff import (
     import_result_package,
     read_package_file,
     validate_job_package,
+    validate_result_package,
     write_package_file,
 )
 
@@ -309,6 +310,13 @@ class WorkerJobQueueTests(unittest.TestCase):
         self.assertEqual(package["package_type"], "voocks.worker.job")
         self.assertEqual(package["manifest"]["task_id"], self.task["task_id"])
         self.assertTrue(validate_job_package(package, now=NOW)["profile"].is_synthetic)
+        self.assertIn(
+            "worker_package_exported",
+            [
+                event["event_type"]
+                for event in self.queue.get_job(job["job_id"])["audit_events"]
+            ],
+        )
         alternative = copy.deepcopy(package)
         alternative["worker_profile"]["provider_id"] = "alternative-worker-v1"
         self.assertEqual(
@@ -336,10 +344,124 @@ class WorkerJobQueueTests(unittest.TestCase):
             package_path = Path(directory) / "job_package.json"
             package_path.write_text(json.dumps(package), encoding="utf-8")
             with contextlib.chdir(directory):
+                notebook_namespace = {}
                 exec(
                     compile(validator_source, "<offline-notebook-validator>", "exec"),
-                    {},
+                    notebook_namespace,
                 )
+                notebook_validated = notebook_namespace["validate_job_package"](
+                    package, now=NOW
+                )
+                self.assertEqual(
+                    notebook_validated["input_artifacts"][0]["sha256"],
+                    package["manifest"]["input_artifacts"][0]["sha256"],
+                )
+
+    def test_notebook_generates_deterministic_demo_result_and_rejects_unsafe_paths(self) -> None:
+        job = self.enqueue()
+        self.register_worker()
+        self.authorize(job)
+        package = export_job_package(
+            self.queue, job["job_id"], worker_id="simulated-worker",
+            director_id=DIRECTOR_ID, now=NOW,
+        )
+        notebook = json.loads(
+            (ROOT / "notebooks" / "worker_handoff_offline.ipynb").read_text()
+        )
+        notebook_namespace = {}
+        exec(
+            compile(
+                "".join(notebook["cells"][1]["source"]),
+                "<offline-notebook-validator>",
+                "exec",
+            ),
+            notebook_namespace,
+        )
+        with tempfile.TemporaryDirectory() as directory, contextlib.chdir(directory):
+            first = notebook_namespace["make_result_package"](
+                package, "result-one.json", now=NOW + timedelta(seconds=1)
+            )
+            second = notebook_namespace["make_result_package"](
+                package, "result-two.json", now=NOW + timedelta(seconds=1)
+            )
+            self.assertEqual(first, second)
+            self.assertTrue(first["is_synthetic"])
+            self.assertEqual(first["schema_version"], 2)
+            self.assertEqual(
+                read_package_file("result-one.json"),
+                read_package_file("result-two.json"),
+            )
+            self.assertEqual(
+                validate_result_package(
+                    first, job_package=package, now=NOW + timedelta(seconds=1)
+                )["status"],
+                "succeeded",
+            )
+            with self.assertRaisesRegex(ValueError, "direct"):
+                notebook_namespace["read_json"]("../outside.json")
+            Path("job-link.json").symlink_to(Path("result-one.json"))
+            with self.assertRaisesRegex(ValueError, "direct"):
+                notebook_namespace["read_json"]("job-link.json")
+            Path("job-archive.zip").write_bytes(b"PK\\x03\\x04not an accepted JSON package")
+            with self.assertRaisesRegex(ValueError, "JSON"):
+                notebook_namespace["read_json"]("job-archive.zip")
+
+    def test_export_rejects_tampered_source_evidence_before_leasing(self) -> None:
+        job = self.enqueue()
+        self.register_worker()
+        self.authorize(job)
+        input_id = job["input_artifacts"][0]["artifact_id"]
+        evidence_path = (
+            self.database.parent / f".{self.database.name}.evidence" / f"{input_id}.txt"
+        )
+        evidence_path.write_bytes(b"tampered source evidence")
+        with self.assertRaisesRegex(WorkerHandoffError, "no longer available or verified"):
+            export_job_package(
+                self.queue,
+                job["job_id"],
+                worker_id="simulated-worker",
+                director_id=DIRECTOR_ID,
+                now=NOW,
+            )
+        persisted = self.queue.get_job(job["job_id"])
+        self.assertEqual(persisted["state"], "queued")
+        self.assertEqual(persisted["attempt_count"], 0)
+
+    def test_result_import_requires_authorizing_director_and_audits_importer(self) -> None:
+        job = self.enqueue()
+        self.register_worker()
+        self.authorize(job)
+        package = export_job_package(
+            self.queue, job["job_id"], worker_id="simulated-worker",
+            director_id=DIRECTOR_ID, now=NOW,
+        )
+        output = package["manifest"]["output_artifacts"][0]
+        result = create_result_package(
+            package,
+            ({"artifact_id": output["artifact_id"], "content": b"DEMO result"},),
+            now=NOW + timedelta(seconds=1),
+            completed_at=NOW + timedelta(seconds=1),
+        )
+        self.assertFalse(result["worker_identity_authenticated"])
+        self.queue.close()
+        self.queue = WorkerJobQueue(
+            self.allocation, {DIRECTOR_ID, "other-director"},
+            now=NOW + timedelta(seconds=2),
+        )
+        with self.assertRaisesRegex(WorkerHandoffError, "Only the Director who authorized"):
+            import_result_package(
+                self.queue, result, director_id="other-director",
+                now=NOW + timedelta(seconds=2),
+            )
+        self.assertEqual(self.queue.get_job(job["job_id"])["state"], "running")
+        imported = import_result_package(
+            self.queue, result, director_id=DIRECTOR_ID,
+            now=NOW + timedelta(seconds=2),
+        )
+        event = imported["audit_events"][-1]
+        self.assertEqual(event["event_type"], "worker_result_package_imported")
+        self.assertEqual(event["actor_id"], DIRECTOR_ID)
+        self.assertEqual(json.loads(event["details_json"])["worker_identity_authenticated"], False)
 
     def test_handoff_result_integrity_replay_and_file_roundtrip(self) -> None:
         with self.assertRaisesRegex(WorkerHandoffError, "Duplicate JSON field"):
@@ -353,6 +475,16 @@ class WorkerJobQueueTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(WorkerHandoffError, "checksum"):
             validate_job_package({**package, "manifest_sha256": "0" * 64}, now=NOW)
+        self.assertEqual(
+            base64.b64decode(package["input_artifacts"][0]["content_base64"]),
+            b"Synthetic but persisted task evidence for queue tests.",
+        )
+        tampered_input = copy.deepcopy(package)
+        tampered_input["input_artifacts"][0]["content_base64"] = base64.b64encode(
+            b"tampered input"
+        ).decode("ascii")
+        with self.assertRaisesRegex(WorkerHandoffError, "size or SHA-256"):
+            validate_job_package(tampered_input, now=NOW)
 
         output_content = b"Offline handoff verified output fixture."
         result = create_result_package(
@@ -375,6 +507,12 @@ class WorkerJobQueueTests(unittest.TestCase):
             with self.assertRaisesRegex(WorkerHandoffError, "safely"):
                 read_package_file(symlink)
 
+        with self.assertRaisesRegex(WorkerHandoffError, "configured Director"):
+            import_result_package(
+                self.queue, result, director_id="intruder",
+                now=NOW + timedelta(seconds=2),
+            )
+
         self.queue.close()
         self.queue = WorkerJobQueue(
             self.allocation, {DIRECTOR_ID}, now=NOW + timedelta(seconds=2)
@@ -387,16 +525,27 @@ class WorkerJobQueueTests(unittest.TestCase):
             invalid = copy.deepcopy(result)
             mutation(invalid)
             with self.assertRaises(WorkerHandoffError):
-                import_result_package(self.queue, invalid, now=NOW + timedelta(seconds=2))
+                import_result_package(
+                    self.queue, invalid, director_id=DIRECTOR_ID,
+                    now=NOW + timedelta(seconds=2),
+                )
         imported = import_result_package(
-            self.queue, result, now=NOW + timedelta(seconds=2)
+            self.queue, result, director_id=DIRECTOR_ID,
+            now=NOW + timedelta(seconds=2)
         )
         self.assertEqual(imported["state"], "succeeded")
         self.assertEqual(imported["output_verification"], "verified")
         self.assertTrue(imported["outputs"][0]["is_synthetic"])
+        self.assertIn(
+            "worker_result_package_imported",
+            [event["event_type"] for event in imported["audit_events"]],
+        )
         self.assertTrue(self.queue.verify_audit_chain(job["job_id"]))
         with self.assertRaisesRegex(WorkerHandoffError, "active authorized running job"):
-            import_result_package(self.queue, result, now=NOW + timedelta(seconds=3))
+            import_result_package(
+                self.queue, result, director_id=DIRECTOR_ID,
+                now=NOW + timedelta(seconds=3)
+            )
 
     def test_stale_handoff_result_recovers_lease_and_interruption_is_retryable(self) -> None:
         job = self.enqueue()
@@ -414,7 +563,8 @@ class WorkerJobQueueTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(WorkerHandoffError, "active authorized running job"):
             import_result_package(
-                self.queue, stale_result, now=NOW + timedelta(seconds=301)
+                self.queue, stale_result, director_id=DIRECTOR_ID,
+                now=NOW + timedelta(seconds=301)
             )
         recovered = self.queue.get_job(job["job_id"])
         self.assertEqual(recovered["state"], "queued")
@@ -437,10 +587,16 @@ class WorkerJobQueueTests(unittest.TestCase):
             completed_at=NOW + timedelta(seconds=304),
         )
         failed = import_result_package(
-            self.queue, interrupted, now=NOW + timedelta(seconds=304)
+            self.queue, interrupted, director_id=DIRECTOR_ID,
+            now=NOW + timedelta(seconds=304)
         )
         self.assertEqual(failed["state"], "failed")
         self.assertEqual(failed["last_error"], "WORKER_INTERRUPTED")
+        self.assertEqual(
+            failed["audit_events"][-1]["event_type"],
+            "worker_result_package_imported",
+        )
+        self.assertTrue(self.queue.verify_audit_chain(job["job_id"]))
         retried = self.queue.retry(
             job["job_id"], director_id=DIRECTOR_ID,
             now=NOW + timedelta(seconds=305),
@@ -463,6 +619,8 @@ class WorkerJobQueueTests(unittest.TestCase):
                 page = response.read().decode("utf-8")
             self.assertIn("Export Manual Worker Package", page)
             self.assertIn("Import Worker Result Package", page)
+            self.assertIn("worker identity DEMO / UNAUTHENTICATED", page)
+            self.assertIn("Import rejected.", page)
 
             def post(path: str, payload: dict):
                 request = Request(
@@ -489,14 +647,21 @@ class WorkerJobQueueTests(unittest.TestCase):
             )
             imported = post(
                 f"/api/worker-jobs/{job['job_id']}/import-result",
-                result,
+                {"director_id": DIRECTOR_ID, "package": result},
             )
             self.assertEqual(imported["state"], "succeeded")
             self.assertTrue(imported["outputs"][0]["is_synthetic"])
+            self.assertEqual(
+                imported["audit_events"][-1]["event_type"],
+                "worker_result_package_imported",
+            )
             with self.assertRaises(HTTPError) as response_error:
                 post(
                     f"/api/worker-jobs/{job['job_id']}/import-result",
-                    {**result, "job_id": "another-job"},
+                    {
+                        "director_id": DIRECTOR_ID,
+                        "package": {**result, "job_id": "another-job"},
+                    },
                 )
             response_error.exception.close()
         finally:

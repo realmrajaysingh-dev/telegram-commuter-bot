@@ -924,15 +924,21 @@ class TaskAllocationEngine:
     def _verify_artifact_file(
         self, artifact: dict[str, Any], task_id: str
     ) -> tuple[bool, str | None]:
+        content, error = self._read_verified_artifact_file(artifact, task_id)
+        return content is not None, error
+
+    def _read_verified_artifact_file(
+        self, artifact: dict[str, Any], task_id: str
+    ) -> tuple[bytes | None, str | None]:
         if artifact["task_id"] != task_id:
-            return False, "artifact-task-mismatch"
+            return None, "artifact-task-mismatch"
         artifact_id = artifact["artifact_id"]
         if (
             not isinstance(artifact_id, str)
             or not re.fullmatch(r"[a-f0-9]{32}", artifact_id)
             or artifact["storage_name"] != f"{artifact_id}.txt"
         ):
-            return False, "artifact-storage-reference-invalid"
+            return None, "artifact-storage-reference-invalid"
         if (
             not isinstance(artifact["size_bytes"], int)
             or artifact["size_bytes"] <= 0
@@ -940,25 +946,25 @@ class TaskAllocationEngine:
             or not isinstance(artifact["sha256"], str)
             or not re.fullmatch(r"[a-f0-9]{64}", artifact["sha256"])
         ):
-            return False, "artifact-metadata-invalid"
+            return None, "artifact-metadata-invalid"
         try:
             root = self._evidence_directory()
             path = root / artifact["storage_name"]
             path_stat = path.lstat()
             if not stat.S_ISREG(path_stat.st_mode) or stat.S_ISLNK(path_stat.st_mode):
-                return False, "artifact-file-invalid"
+                return None, "artifact-file-invalid"
             if path.resolve(strict=True).parent != root:
-                return False, "artifact-path-invalid"
+                return None, "artifact-path-invalid"
             flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
             descriptor = os.open(path, flags)
             try:
                 opened_stat = os.fstat(descriptor)
                 if not stat.S_ISREG(opened_stat.st_mode):
-                    return False, "artifact-file-invalid"
+                    return None, "artifact-file-invalid"
                 if opened_stat.st_size <= 0:
-                    return False, "artifact-empty"
+                    return None, "artifact-empty"
                 if opened_stat.st_size > MAX_EVIDENCE_BYTES:
-                    return False, "artifact-too-large"
+                    return None, "artifact-too-large"
                 chunks: list[bytes] = []
                 total = 0
                 while True:
@@ -968,25 +974,57 @@ class TaskAllocationEngine:
                     chunks.append(chunk)
                     total += len(chunk)
                     if total > MAX_EVIDENCE_BYTES:
-                        return False, "artifact-too-large"
+                        return None, "artifact-too-large"
                 content = b"".join(chunks)
             finally:
                 os.close(descriptor)
         except FileNotFoundError:
-            return False, "artifact-file-missing"
+            return None, "artifact-file-missing"
         except (OSError, AllocationError):
-            return False, "artifact-file-unavailable"
+            return None, "artifact-file-unavailable"
         if len(content) != artifact["size_bytes"]:
-            return False, "artifact-size-mismatch"
+            return None, "artifact-size-mismatch"
         try:
             if not content.decode("utf-8").strip():
-                return False, "artifact-empty"
+                return None, "artifact-empty"
         except UnicodeDecodeError:
-            return False, "artifact-content-invalid"
+            return None, "artifact-content-invalid"
         digest = hashlib.sha256(content).hexdigest()
         if not hmac.compare_digest(digest, artifact["sha256"]):
-            return False, "artifact-hash-mismatch"
-        return True, None
+            return None, "artifact-hash-mismatch"
+        return content, None
+
+    def read_verified_task_evidence_artifact(
+        self, task_id: str, artifact_id: str
+    ) -> tuple[dict[str, Any], bytes]:
+        with self._lock:
+            task = self._task_row(task_id)
+            validation = self._validate_task_evidence(task)
+            if not validation["is_valid"]:
+                raise AllocationError("Task evidence is no longer valid")
+            evidence = next(
+                (
+                    item for item in validation["artifacts"]
+                    if item["artifact_id"] == artifact_id and item["verified"]
+                ),
+                None,
+            )
+            if evidence is None:
+                raise AllocationError("Verified task evidence artifact was not found")
+            row = self._connection.execute(
+                """
+                SELECT * FROM studio_evidence_artifacts
+                WHERE artifact_id = ? AND task_id = ?
+                """,
+                (artifact_id, task_id),
+            ).fetchone()
+            if row is None:
+                raise AllocationError("Verified task evidence artifact was not found")
+            artifact = dict(row)
+            content, error = self._read_verified_artifact_file(artifact, task_id)
+            if content is None:
+                raise AllocationError(f"Task evidence artifact failed verification: {error}")
+            return artifact, content
 
     def _validate_task_evidence(self, task: dict[str, Any]) -> dict[str, Any]:
         errors: list[str] = []

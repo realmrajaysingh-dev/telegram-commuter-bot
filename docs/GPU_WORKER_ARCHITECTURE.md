@@ -437,3 +437,42 @@ completed with **138 tests passing** and no failures. Notebook JSON/code-cell
 syntax validation and Python module compilation passed. Session 07.6 readiness:
 **PASS for the offline handoff contract and synthetic-only workflow**; real
 Colab/Drive integration and authenticated workers remain out of scope.
+
+## Session 07.7 — Verified offline handoff integration
+
+The portable job and result package contract is now version 2. Before the
+existing queue issues a lease for export, it reads every referenced task
+evidence artifact through the existing allocation evidence store and verifies
+the actual bytes against the persisted task association, declared size, and
+SHA-256. The package embeds those bytes as canonical base64 alongside their
+exact manifest references; total raw input is capped at 8 MiB and the encoded
+package at 16 MiB. Version-1 handoff files are rejected rather than treated as
+containing verified inputs.
+
+The notebook validates exact package fields, schema versions, manifest
+digest, IDs, capability and resource bounds, authorization and lease windows,
+safe artifact keys, input-reference equality, and actual input bytes/checksums.
+File reads are limited to regular, non-symlink direct children of the notebook
+working directory. No archive format is used or extracted. The notebook
+generates deterministic inert JSON result bytes from job metadata and input
+checksums; it does not process inputs, run declared instructions, or access
+hardware. New result files are bounded, created with exclusive/no-follow
+semantics, and explicitly labeled `DEMO / UNAUTHENTICATED`.
+
+Dashboard result import requires the configured Director who authorized that
+job. The current persisted running lease and worker assertion are matched
+before package acceptance; output bytes, declaration association, size, and
+SHA-256 are validated before the existing queue artifact store accepts them.
+Successful and failed package imports are recorded as immutable worker audit
+events with Director ID assertion and unauthenticated-worker provenance.
+Dashboard success history is persisted; failures display generic, sanitized
+messages. Existing retry, lease-expiry recovery, evidence, Observer, and task
+completion controls remain authoritative. This protocol is local/manual and
+does not authenticate the Director ID or worker identity.
+
+**Verification:** `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -v`
+completed with **141 tests passing** and no failures or reported warnings.
+Python module compilation, notebook JSON/code-cell syntax validation, and
+`git diff --check` passed. Session 07.7 readiness: **PASS** for the local,
+manual, synthetic-only handoff; actual Colab/Drive integration and
+authenticated workers remain out of scope.

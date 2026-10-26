@@ -290,3 +290,39 @@ completed with **138 tests passing** and no failures. Notebook JSON/code-cell
 syntax validation and Python module compilation passed. Session 07.6 readiness:
 **PASS for the offline handoff contract and synthetic-only workflow**; real
 Colab/Drive integration and authenticated workers remain out of scope.
+
+## Session 07.7 — Secure offline handoff integration
+
+Upgraded the portable job/result contract to schema version 2. A Director-
+authorized export now reads the exact task-evidence bytes from the existing
+private evidence store, verifies task association, bounded size, and SHA-256,
+and packages those bytes with their manifest-bound references. The notebook
+independently validates the package and input bytes. Input content is capped
+at 8 MiB total; packages remain capped at 16 MiB. The JSON-only flow does not
+accept or extract archives.
+
+The notebook emits deterministic, inert synthetic JSON output rather than
+executing processing instructions or reading staged output files. Result
+packages are written as new, private-mode files in the notebook working
+directory without following symlinks or overwriting existing files. Both
+package types explicitly mark worker identity as unauthenticated, and results
+remain marked synthetic.
+
+Dashboard result import now requires the configured Director who authorized
+the active job. Import verifies current SQLite authorization and lease
+ownership, identifiers, input/output declarations, actual output bytes, size,
+and SHA-256 before passing outputs through the existing controlled queue
+storage. Export and accepted success/failure imports are hash-audited. The
+dashboard displays persisted handoff events and generic sanitized status
+messages. Schema-version-1 handoff files are rejected; SQLite project, task,
+worker, evidence, and audit records are unchanged.
+
+No archive extraction, Colab/Drive connection, external networking, GPU
+inference, FFmpeg, publishing, or package-provided code execution is enabled.
+
+**Verification:** `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -v`
+completed with **141 tests passing** and no failures or reported warnings.
+Python module compilation, notebook JSON/code-cell syntax validation, and
+`git diff --check` passed. Session 07.7 readiness: **PASS** for the local,
+manual, synthetic-only handoff; actual Colab/Drive integration and
+authenticated workers remain out of scope.

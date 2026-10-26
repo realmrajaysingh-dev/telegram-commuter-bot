@@ -13,6 +13,7 @@ import re
 import stat
 from typing import Any
 
+from .allocation import AllocationError
 from .models import parse_datetime
 from .worker_contracts import (
     Accelerator,
@@ -29,8 +30,9 @@ from .worker_connector import (
 )
 
 
-HANDOFF_SCHEMA_VERSION = 1
+HANDOFF_SCHEMA_VERSION = 2
 MAX_PACKAGE_BYTES = 16 * 1024 * 1024
+MAX_PACKAGE_INPUT_BYTES = 8 * 1024 * 1024
 MAX_PACKAGE_OUTPUT_BYTES = 8 * 1024 * 1024
 _PACKAGE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 _SHA256 = re.compile(r"^[a-f0-9]{64}$")
@@ -257,21 +259,134 @@ def _package_from_record(
     record: JobRecord,
     profile: WorkerCapabilityProfile,
     *,
+    input_artifacts: list[dict[str, Any]] | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     if record.authorization is None or record.lease is None:
         raise WorkerHandoffError("A persisted Director authorization and lease are required")
+    if input_artifacts is None:
+        input_artifacts = _read_package_inputs(queue, record.manifest)
     return {
         "package_type": "voocks.worker.job",
         "schema_version": HANDOFF_SCHEMA_VERSION,
         "manifest": queue._manifest_dict(record.manifest),
         "manifest_sha256": manifest_digest(record.manifest),
+        "input_artifacts": input_artifacts,
         "authorization": queue._auth_dict(record.authorization),
         "lease": queue._lease_dict(record.lease),
         "worker_profile": _profile_dict(profile),
+        "worker_identity_authenticated": False,
         "exported_at": (now or datetime.now(timezone.utc)).astimezone(timezone.utc).isoformat(),
         "execution_notice": _EXECUTION_NOTICE,
     }
+
+
+def _read_package_inputs(
+    queue: WorkerJobQueue, manifest: Any
+) -> list[dict[str, Any]]:
+    references = manifest.input_artifacts
+    packaged: list[dict[str, Any]] = []
+    total_bytes = 0
+    try:
+        for reference in references:
+            artifact, content = queue.allocation.read_verified_task_evidence_artifact(
+                manifest.task_id, reference.artifact_id
+            )
+            digest = hashlib.sha256(content).hexdigest()
+            if (
+                artifact["artifact_id"] != reference.artifact_id
+                or artifact["task_id"] != manifest.task_id
+                or len(content) != reference.size_bytes
+                or artifact["size_bytes"] != reference.size_bytes
+                or not hmac.compare_digest(digest, reference.sha256)
+                or not hmac.compare_digest(artifact["sha256"], reference.sha256)
+                or reference.backend.value != "local"
+                or reference.key != f"studio-evidence/{reference.artifact_id}.txt"
+            ):
+                raise WorkerHandoffError(
+                    "Input artifact bytes do not match the job manifest"
+                )
+            total_bytes += len(content)
+            if total_bytes > min(
+                MAX_PACKAGE_INPUT_BYTES,
+                manifest.resources.max_storage_bytes,
+            ):
+                raise WorkerHandoffError(
+                    "Input artifacts exceed the offline handoff size limit"
+                )
+            packaged.append(
+                {
+                    "artifact_id": reference.artifact_id,
+                    "backend": reference.backend.value,
+                    "key": reference.key,
+                    "sha256": reference.sha256,
+                    "size_bytes": reference.size_bytes,
+                    "media_type": reference.media_type,
+                    "content_base64": base64.b64encode(content).decode("ascii"),
+                }
+            )
+    except AllocationError as exc:
+        raise WorkerHandoffError(
+            f"Input evidence is no longer available or verified: {exc}"
+        ) from exc
+    return packaged
+
+
+def _validate_package_inputs(
+    package: object, manifest: Any
+) -> tuple[dict[str, Any], ...]:
+    if not isinstance(package, list) or len(package) != len(manifest.input_artifacts):
+        raise WorkerHandoffError(
+            "Job package must contain every declared input artifact exactly once"
+        )
+    verified: list[dict[str, Any]] = []
+    total_bytes = 0
+    for item, reference in zip(package, manifest.input_artifacts, strict=True):
+        if not isinstance(item, dict) or set(item) != {
+            "artifact_id", "backend", "key", "sha256", "size_bytes",
+            "media_type", "content_base64",
+        }:
+            raise WorkerHandoffError("Job input artifact fields are invalid")
+        for field in (
+            "artifact_id", "backend", "key", "sha256", "size_bytes", "media_type",
+        ):
+            expected = (
+                reference.backend.value if field == "backend"
+                else getattr(reference, field)
+            )
+            if item[field] != expected:
+                raise WorkerHandoffError(
+                    f"Job input {field.replace('_', ' ')} does not match its manifest reference"
+                )
+        encoded = item["content_base64"]
+        if not isinstance(encoded, str) or len(encoded) > (
+            MAX_PACKAGE_INPUT_BYTES * 4 // 3 + 8
+        ):
+            raise WorkerHandoffError("Input artifact content exceeds the handoff limit")
+        try:
+            content = base64.b64decode(encoded, validate=True)
+        except (ValueError, base64.binascii.Error) as exc:
+            raise WorkerHandoffError("Input artifact content is not valid base64") from exc
+        digest = hashlib.sha256(content).hexdigest()
+        if (
+            not content
+            or len(content) != reference.size_bytes
+            or base64.b64encode(content).decode("ascii") != encoded
+            or not hmac.compare_digest(digest, reference.sha256)
+        ):
+            raise WorkerHandoffError(
+                "Input artifact bytes do not match their declared size or SHA-256"
+            )
+        total_bytes += len(content)
+        if total_bytes > min(
+            MAX_PACKAGE_INPUT_BYTES,
+            manifest.resources.max_storage_bytes,
+        ):
+            raise WorkerHandoffError(
+                "Input artifacts exceed the offline handoff size limit"
+            )
+        verified.append({**item, "content": content})
+    return tuple(verified)
 
 
 def validate_job_package(
@@ -283,7 +398,8 @@ def validate_job_package(
     current = _aware_now(now)
     required = {
         "package_type", "schema_version", "manifest", "manifest_sha256",
-        "authorization", "lease", "worker_profile", "exported_at",
+        "input_artifacts", "authorization", "lease", "worker_profile",
+        "worker_identity_authenticated", "exported_at",
         "execution_notice",
     }
     if not isinstance(package, dict) or set(package) != required:
@@ -306,6 +422,7 @@ def validate_job_package(
         or not hmac.compare_digest(digest, package["manifest_sha256"])
     ):
         raise WorkerHandoffError("Job manifest checksum does not match its content")
+    verified_inputs = _validate_package_inputs(package["input_artifacts"], manifest)
     auth = package["authorization"]
     if not isinstance(auth, dict) or set(auth) != {
         "authorization_id", "director_id", "manifest_sha256", "authorized_at", "expires_at",
@@ -344,6 +461,10 @@ def validate_job_package(
     except (TypeError, ValueError) as exc:
         raise WorkerHandoffError("Job package timestamps are invalid") from exc
     profile = _parse_profile(package["worker_profile"])
+    if not profile.is_synthetic:
+        raise WorkerHandoffError(
+            "Offline handoff accepts only DEMO worker identities"
+        )
     if (
         acquired_at > current
         or heartbeat_at < acquired_at
@@ -373,7 +494,14 @@ def validate_job_package(
         )
     if package["execution_notice"] != _EXECUTION_NOTICE:
         raise WorkerHandoffError("Job package execution notice is invalid")
-    return {"manifest": manifest, "profile": profile, "match": match}
+    if package["worker_identity_authenticated"] is not False:
+        raise WorkerHandoffError("Worker identity must remain DEMO / UNAUTHENTICATED")
+    return {
+        "manifest": manifest,
+        "profile": profile,
+        "match": match,
+        "input_artifacts": verified_inputs,
+    }
 
 
 def export_job_package(
@@ -399,12 +527,26 @@ def export_job_package(
         raise WorkerHandoffError(
             "Selected worker is incompatible or unavailable: " + ", ".join(match.reasons)
         )
+    input_artifacts = _read_package_inputs(queue, record.manifest)
     queue.lease(job_id, worker_id=worker_id, now=current)
     queue.start(job_id, worker_id=worker_id, now=current)
     record = queue.get_record(job_id)
-    package = _package_from_record(queue, record, profile, now=current)
+    package = _package_from_record(
+        queue, record, profile, input_artifacts=input_artifacts, now=current
+    )
     validate_job_package(package, now=current)
     encode_package(package)
+    queue.record_handoff_export(
+        job_id,
+        director_id=director_id,
+        worker_id=worker_id,
+        manifest_sha256=package["manifest_sha256"],
+        input_artifact_hashes=tuple(
+            (item["artifact_id"], item["sha256"])
+            for item in package["input_artifacts"]
+        ),
+        now=current,
+    )
     return package
 
 
@@ -504,6 +646,7 @@ def create_result_package(
         "completed_at": timestamp.astimezone(timezone.utc).isoformat(),
         "result_id": result_id or f"handoff-result-{hashlib.sha256(os.urandom(32)).hexdigest()[:32]}",
         "is_synthetic": is_synthetic,
+        "worker_identity_authenticated": False,
         "error_code": error_code,
         "outputs": normalized_outputs,
     }
@@ -524,7 +667,7 @@ def validate_result_package(
         "package_type", "schema_version", "status", "job_id", "task_id",
         "project_id", "manifest_sha256", "authorization_id", "worker_id",
         "lease_id", "attempt", "completed_at", "result_id", "is_synthetic",
-        "error_code", "outputs",
+        "worker_identity_authenticated", "error_code", "outputs",
     }
     if not isinstance(package, dict) or set(package) != required:
         raise WorkerHandoffError("Result package fields are missing or unsupported")
@@ -544,6 +687,8 @@ def validate_result_package(
         raise WorkerHandoffError("Result attempt must be an integer")
     if type(package["is_synthetic"]) is not bool or package["is_synthetic"] != context["profile"].is_synthetic:
         raise WorkerHandoffError("Result provenance does not match the worker profile")
+    if package["worker_identity_authenticated"] is not False:
+        raise WorkerHandoffError("Worker identity must remain DEMO / UNAUTHENTICATED")
     try:
         completed_at = parse_datetime(package["completed_at"])
     except (TypeError, ValueError) as exc:
@@ -628,9 +773,12 @@ def import_result_package(
     queue: WorkerJobQueue,
     package: dict[str, Any],
     *,
+    director_id: str,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     current = _aware_now(now)
+    if not isinstance(director_id, str) or director_id not in queue.director_ids:
+        raise WorkerHandoffError("A configured Director must import worker results")
     encode_package(package)
     if not isinstance(package, dict) or not isinstance(package.get("job_id"), str):
         raise WorkerHandoffError("Result package must identify a worker job")
@@ -639,6 +787,10 @@ def import_result_package(
     record = queue.get_record(package["job_id"])
     if record.state is not JobState.RUNNING or record.authorization is None or record.lease is None:
         raise WorkerHandoffError("Result package requires an active authorized running job")
+    if record.authorization.director_id != director_id:
+        raise WorkerHandoffError(
+            "Only the Director who authorized this job may import its result"
+        )
     profile = queue._worker_profile(record.lease.worker_id)
     if not profile.is_synthetic:
         raise WorkerHandoffError("Current local handoff accepts only labeled synthetic workers")
@@ -655,12 +807,15 @@ def import_result_package(
             outputs=result["outputs"],
             result_id=package["result_id"],
             completed_at=result["completed_at"],
+            accepted_by_director_id=director_id,
             now=current,
         )
     return queue.fail(
         record.manifest.job_id,
         worker_id=record.lease.worker_id,
         error_code=package["error_code"],
+        accepted_by_director_id=director_id,
+        result_id=package["result_id"],
         now=current,
     )
 
@@ -689,6 +844,9 @@ def import_result_package_file(
     queue: WorkerJobQueue,
     path: str | Path,
     *,
+    director_id: str,
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    return import_result_package(queue, read_package_file(path), now=now)
+    return import_result_package(
+        queue, read_package_file(path), director_id=director_id, now=now
+    )

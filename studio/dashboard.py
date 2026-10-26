@@ -34,7 +34,7 @@ _MAX_REQUEST_BYTES = 8_192
 _MAX_EVIDENCE_REQUEST_BYTES = MAX_EVIDENCE_BYTES * 4 + 4_096
 _MAX_WORKER_OUTPUT_BYTES = 1 * 1024**2
 _MAX_WORKER_RESULT_REQUEST_BYTES = _MAX_WORKER_OUTPUT_BYTES * 4 // 3 + 16_384
-_MAX_WORKER_HANDOFF_REQUEST_BYTES = MAX_PACKAGE_BYTES
+_MAX_WORKER_HANDOFF_REQUEST_BYTES = MAX_PACKAGE_BYTES + 8_192
 
 
 class _DashboardHTTPServer(ThreadingHTTPServer):
@@ -227,6 +227,7 @@ let selectedId = null;
 let selectedProjectId = null;
 let projectOptions = null;
 let selectedPlan = null;
+const handoffMessages = new Map();
 function el(tag, text, cls) { const node=document.createElement(tag); if(text!==undefined) node.textContent=text; if(cls) node.className=cls; return node; }
 function localDateTimeValue(value) { const date=new Date(value); return new Date(date.getTime()-date.getTimezoneOffset()*60000).toISOString().slice(0,16); }
 async function api(url, options) { const response=await fetch(url,options); const body=await response.json(); if(!response.ok) throw new Error(body.error||`Request failed (${response.status})`); return body; }
@@ -486,7 +487,7 @@ async function refreshWorkerJobs() {
   if(!snapshot.workers.length) workers.append(el("p","No manual workers registered.","muted"));
   for(const worker of snapshot.workers) {
     const row=el("div",undefined,"attempt");
-    row.append(el("strong",`${worker.worker_id} · ${worker.state}${worker.is_simulation?" · synthetic simulation":""}`));
+    row.append(el("strong",`${worker.worker_id} · ${worker.state}${worker.is_simulation?" · DEMO / UNAUTHENTICATED":""}`));
     row.append(el("p",`${worker.workloads.join(", ")} · ${worker.cpu_cores} CPU · ${worker.memory_mb} MiB RAM · VRAM ${worker.vram_mb} MiB · types: ${worker.processing_types.join(", ")||"none"} · expires ${worker.expires_at}`,"muted"));
     const state=el("select");
     for(const value of ["available","registered","gpu_unavailable","disconnected"])
@@ -500,6 +501,7 @@ async function refreshWorkerJobs() {
   if(!snapshot.jobs.length) list.append(el("div","No persisted worker jobs.","empty"));
   for(const job of snapshot.jobs) {
     const card=el("div",undefined,"worker-job");
+    card.dataset.workerJobId=job.job_id;
     card.append(el("strong",`${job.state.toUpperCase()} · ${job.workload} · ${job.job_id}`));
     card.append(el("p",`${job.project_title} · ${job.task_title} (${job.task_status})${job.project_is_demo?" · Demo":""}`,"muted"));
     card.append(el("p",`Attempt ${job.attempt_count}/${job.max_attempts} · ${job.resource_requirements.accelerator} · Deadline ${job.deadline_at}`));
@@ -510,10 +512,19 @@ async function refreshWorkerJobs() {
     if(mockMatch) card.append(el("p",
       `Offline Colab T4 compatibility fixture: ${mockMatch.hardware_compatible?"hardware-compatible":"not compatible"} · ${mockMatch.available_for_lease?"leaseable":"never leaseable"}${mockMatch.reasons.length?` · ${mockMatch.reasons.join(", ")}`:""}`,"notice"));
     if(job.authorization) card.append(el("p",`Authorized by ${job.authorization.director_id} until ${job.authorization.expires_at}`,"muted"));
-    if(job.lease) card.append(el("p",`Lease ${job.lease.lease_id} · ${job.lease.worker_id} · expires ${job.lease.expires_at}`,"muted"));
+    if(job.lease) card.append(el("p",`Lease ${job.lease.lease_id} · ${job.lease.worker_id} · worker identity DEMO / UNAUTHENTICATED · expires ${job.lease.expires_at}`,"muted"));
     if(job.last_error) card.append(el("p",`Failure: ${job.last_error}`,"notice"));
+    const handoffEvent=[...job.audit_events].reverse().find(event=>
+      ["worker_package_exported","worker_result_package_imported"].includes(event.event_type)
+    );
+    if(handoffEvent) {
+      const action=handoffEvent.event_type==="worker_package_exported"?"Job package exported":"Result package imported";
+      card.append(el("p",`Handoff status: ${action} · worker identity DEMO / UNAUTHENTICATED`,"notice"));
+    }
+    if(handoffMessages.has(job.job_id))
+      card.append(el("p",handoffMessages.get(job.job_id),"notice"));
     card.append(el("p",`Output verification: ${job.output_verification.replaceAll("_"," ")}`,"notice"));
-    if(job.outputs.length) card.append(el("p",`Stored outputs: ${job.outputs.map(item=>`${item.artifact_id} (${item.verification_status}${item.is_synthetic?" · DEMO":""}) · ${item.size_bytes} bytes · SHA-256 ${item.sha256}`).join(" | ")}`,"notice"));
+    if(job.outputs.length) card.append(el("p",`Stored outputs: ${job.outputs.map(item=>`${item.artifact_id} (${item.verification_status}${item.is_synthetic?" · DEMO / worker identity UNAUTHENTICATED":""}) · ${item.size_bytes} bytes · SHA-256 ${item.sha256}`).join(" | ")}`,"notice"));
     const latestChecks=new Map();
     for(const check of job.output_checks) latestChecks.set(check.artifact_id,check);
     for(const [artifactId,check] of latestChecks) if(check.status==="failed")
@@ -594,23 +605,60 @@ async function exportWorkerJobPackage(job,worker_id,button) {
     const link=document.createElement("a"); link.href=URL.createObjectURL(blob);
     link.download=`${job.job_id}-worker-job.json`; link.click();
     URL.revokeObjectURL(link.href);
-    await refreshWorkerJobs();
+    handoffMessages.set(job.job_id,"Export complete · verified input bytes packaged · worker identity DEMO / UNAUTHENTICATED.");
+    try { await refreshWorkerJobs(); }
+    catch {
+      handoffMessages.set(job.job_id,"Export complete, but queue status refresh failed. The package was created; reload dashboard status before retrying.");
+    }
+    renderHandoffMessage(job.job_id);
   } catch(error) {
-    alert(`Worker package export failed: ${error.message}`);
+    handoffMessages.set(job.job_id,"Export rejected. Check Director authorization, job eligibility, verified input evidence, and package limits.");
+    renderHandoffMessage(job.job_id);
     button.disabled=false;
   }
 }
 async function importWorkerResultPackage(job,fileInput,button) {
   const file=fileInput.files?.[0];
-  if(!file) { alert("Select a worker result package JSON file."); return; }
-  if(file.size>16*1024*1024) { alert("Worker result package exceeds the 16 MiB local limit."); return; }
+  if(!file) {
+    handoffMessages.set(job.job_id,"Select a worker result package JSON file.");
+    renderHandoffMessage(job.job_id);
+    return;
+  }
+  if(file.size>16*1024*1024) {
+    handoffMessages.set(job.job_id,"Import rejected: package exceeds the 16 MiB limit.");
+    renderHandoffMessage(job.job_id);
+    return;
+  }
   try {
     const packageData=JSON.parse(await file.text());
-    await workerMutation(
-      `/api/worker-jobs/${encodeURIComponent(job.job_id)}/import-result`,
-      packageData,button
-    );
-  } catch(error) { alert(`Worker result package import failed: ${error.message}`); }
+    const director_id=await requestDirector(); if(!director_id) return;
+    button.disabled=true;
+    await api(`/api/worker-jobs/${encodeURIComponent(job.job_id)}/import-result`,{
+      method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({director_id,package:packageData})
+    });
+    handoffMessages.set(job.job_id,"Import accepted after lease, association, output-byte, and SHA-256 checks · result DEMO / worker identity UNAUTHENTICATED.");
+    try { await refreshWorkerJobs(); }
+    catch {
+      handoffMessages.set(job.job_id,"Import accepted and persisted, but queue status refresh failed. Reload dashboard status.");
+    }
+    renderHandoffMessage(job.job_id);
+  } catch(error) {
+    handoffMessages.set(job.job_id,"Import rejected. Verify the Director ID, active lease, package version, job association, and artifact bytes/checksums.");
+    renderHandoffMessage(job.job_id);
+    button.disabled=false;
+  }
+}
+function renderHandoffMessage(jobId) {
+  for(const card of document.querySelectorAll("[data-worker-job-id]")) {
+    if(card.dataset.workerJobId===jobId) {
+      const existing=card.querySelector("[data-handoff-message]");
+      if(existing) existing.remove();
+      const message=el("p",handoffMessages.get(jobId),"notice");
+      message.dataset.handoffMessage="true";
+      card.append(message);
+    }
+  }
 }
 async function workerMutation(url,payload,button) {
   button.disabled=true;
@@ -1369,11 +1417,22 @@ def create_dashboard_server(
                                 worker_id=payload["worker_id"],
                             )
                         elif operation == "import-result":
-                            if payload.get("job_id") != job_id:
+                            if set(payload) != {"director_id", "package"}:
+                                raise WorkerQueueError(
+                                    "Director ID and result package are required"
+                                )
+                            if (
+                                not isinstance(payload["package"], dict)
+                                or payload["package"].get("job_id") != job_id
+                            ):
                                 raise WorkerQueueError(
                                     "Result package job ID does not match the request path"
                                 )
-                            result = import_result_package(worker_queue, payload)
+                            result = import_result_package(
+                                worker_queue,
+                                payload["package"],
+                                director_id=payload["director_id"],
+                            )
                         elif operation in {"authorize", "retry", "cancel"}:
                             if set(payload) != {"director_id"}:
                                 raise WorkerQueueError("Only Director ID is accepted")

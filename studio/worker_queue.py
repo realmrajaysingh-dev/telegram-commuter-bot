@@ -1457,6 +1457,66 @@ class WorkerJobQueue:
             job_id, lambda record, current: start_job(record, worker_id=worker_id, now=current), now
         )
 
+    def record_handoff_export(
+        self,
+        job_id: str,
+        *,
+        director_id: str,
+        worker_id: str,
+        manifest_sha256: str,
+        input_artifact_hashes: tuple[tuple[str, str], ...],
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
+        current = now or datetime.now(timezone.utc)
+        if director_id not in self.director_ids:
+            raise WorkerQueueError("Only a configured Director may export a worker package")
+        if (
+            not isinstance(manifest_sha256, str)
+            or not re.fullmatch(r"[a-f0-9]{64}", manifest_sha256)
+            or not isinstance(input_artifact_hashes, tuple)
+            or any(
+                not isinstance(item, tuple)
+                or len(item) != 2
+                or not isinstance(item[0], str)
+                or not isinstance(item[1], str)
+                or not re.fullmatch(r"[a-f0-9]{64}", item[1])
+                for item in input_artifact_hashes
+            )
+        ):
+            raise WorkerQueueError("Worker package export audit metadata is invalid")
+        with self._transaction():
+            record = self._record(job_id)
+            if (
+                record.state is not JobState.RUNNING
+                or record.authorization is None
+                or record.authorization.director_id != director_id
+                or record.lease is None
+                or record.lease.worker_id != worker_id
+                or manifest_digest(record.manifest) != manifest_sha256
+            ):
+                raise WorkerQueueError(
+                    "Worker package export does not match the authorized active lease"
+                )
+            self._append_integrity_event(
+                record,
+                event_type="worker_package_exported",
+                actor_id=director_id,
+                now=current,
+                details={
+                    "manifest_sha256": manifest_sha256,
+                    "worker_id_assertion": worker_id,
+                    "lease_id": record.lease.lease_id,
+                    "attempt": record.lease.attempt,
+                    "input_artifact_hashes": [
+                        {"artifact_id": artifact_id, "sha256": digest}
+                        for artifact_id, digest in input_artifact_hashes
+                    ],
+                    "worker_identity_authenticated": False,
+                    "is_synthetic": True,
+                },
+            )
+            return self._job_dict(self._record(job_id))
+
     def heartbeat(
         self, job_id: str, *, worker_id: str, lease_seconds: int = 300,
         now: datetime | None = None,
@@ -1479,25 +1539,67 @@ class WorkerJobQueue:
         )
 
     def fail(
-        self, job_id: str, *, worker_id: str, error_code: str, now: datetime | None = None
+        self,
+        job_id: str,
+        *,
+        worker_id: str,
+        error_code: str,
+        accepted_by_director_id: str | None = None,
+        result_id: str | None = None,
+        now: datetime | None = None,
     ) -> dict[str, Any]:
-        return self._transition_contract(
+        if accepted_by_director_id is not None:
+            if accepted_by_director_id not in self.director_ids:
+                raise WorkerQueueError("Only a configured Director may import a worker package")
+            record = self.get_record(job_id)
+            if (
+                record.authorization is None
+                or record.authorization.director_id != accepted_by_director_id
+            ):
+                raise WorkerQueueError(
+                    "Only the Director who authorized this job may import its result"
+                )
+        failed = self._transition_contract(
             job_id,
             lambda record, current: fail_job(
                 record, worker_id=worker_id, error_code=error_code, now=current
             ),
             now,
         )
+        if accepted_by_director_id is not None:
+            with self._transaction():
+                record = self._record(job_id)
+                if record.state is not JobState.FAILED or record.last_error != error_code:
+                    raise WorkerQueueError("Imported worker failure was not persisted")
+                self._append_integrity_event(
+                    record,
+                    event_type="worker_result_package_imported",
+                    actor_id=accepted_by_director_id,
+                    now=now or datetime.now(timezone.utc),
+                    details={
+                        "result_id": result_id,
+                        "status": "failed",
+                        "error_code": error_code,
+                        "worker_id_assertion": worker_id,
+                        "worker_identity_authenticated": False,
+                        "is_synthetic": True,
+                    },
+                )
+                failed = self._job_dict(self._record(job_id))
+        return failed
 
     def submit_result(
         self, job_id: str, *, worker_id: str, lease_id: str, attempt: int,
         outputs: tuple[dict[str, Any], ...], result_id: str | None = None,
-        completed_at: datetime | None = None, now: datetime | None = None,
+        completed_at: datetime | None = None, accepted_by_director_id: str | None = None,
+        now: datetime | None = None,
     ) -> dict[str, Any]:
         current = now or datetime.now(timezone.utc)
         timestamp = completed_at or current
         if type(attempt) is not int or not isinstance(outputs, tuple):
             raise WorkerQueueError("Worker result attempt and output collection have invalid types")
+        if accepted_by_director_id is not None and accepted_by_director_id not in self.director_ids:
+            raise WorkerQueueError("Only a configured Director may import a worker package")
 
         created_paths: list[Path] = []
         verification_error: str | None = None
@@ -1509,6 +1611,13 @@ class WorkerJobQueue:
                 if record.state is JobState.SUCCEEDED:
                     raise WorkerQueueError("A result was already accepted for this job")
                 lease = record.lease
+                if accepted_by_director_id is not None and (
+                    record.authorization is None
+                    or record.authorization.director_id != accepted_by_director_id
+                ):
+                    raise WorkerQueueError(
+                        "Only the Director who authorized this job may import its result"
+                    )
                 if (
                     record.state is not JobState.RUNNING
                     or lease is None
@@ -1654,6 +1763,30 @@ class WorkerJobQueue:
                             ],
                         },
                     )
+                    if accepted_by_director_id is not None:
+                        self._append_integrity_event(
+                            self._record(job_id),
+                            event_type="worker_result_package_imported",
+                            actor_id=accepted_by_director_id,
+                            now=current,
+                            details={
+                                "result_id": result.result_id,
+                                "worker_id_assertion": worker_id,
+                                "lease_id": lease_id,
+                                "attempt": attempt,
+                                "outputs": [
+                                    {
+                                        "artifact_id": declaration.artifact_id,
+                                        "sha256": digest,
+                                        "size_bytes": size_bytes,
+                                    }
+                                    for _, declaration, _, digest, size_bytes
+                                    in verified_material
+                                ],
+                                "worker_identity_authenticated": False,
+                                "is_synthetic": True,
+                            },
+                        )
                     accepted_record = self._record(job_id)
                 except (WorkerQueueError, ContractError, TypeError, ValueError, KeyError, OSError) as exc:
                     for output_path in created_paths:
