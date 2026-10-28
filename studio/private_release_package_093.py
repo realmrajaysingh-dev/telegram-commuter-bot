@@ -42,6 +42,15 @@ class PrivateArticleReleaseCandidate:
             raise WorkflowError('Explicit editorial decision note required')
         with self.lock, self.db:
             draft = self.intake.get(draft_id)
+            # Any correction ticket invalidates release of this immutable draft version.
+            has_ticket_table = self.db.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='studio_article_correction_tickets'"
+            ).fetchone()
+            if has_ticket_table and self.db.execute(
+                "SELECT 1 FROM studio_article_correction_tickets WHERE draft_id=? LIMIT 1",
+                (draft_id,)
+            ).fetchone():
+                raise WorkflowError("Draft has correction history; new version and fresh review required")
             status = self.gate.evaluate(draft_id)
             if not status['ready_for_editorial_review']:
                 raise WorkflowError('Source review incomplete or blocked; editorial package prohibited')
