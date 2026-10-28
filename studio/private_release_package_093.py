@@ -102,6 +102,14 @@ class PrivateArticleReleaseCandidate:
                 raise WorkflowError('Stored candidate integrity failure')
             package = json.loads(found['candidate_json'])
             draft = self.intake.get(draft_id)
+            has_ticket_table = self.db.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='studio_article_correction_tickets'"
+            ).fetchone()
+            if has_ticket_table and self.db.execute(
+                'SELECT 1 FROM studio_article_correction_tickets WHERE draft_id=? LIMIT 1',
+                (draft_id,)
+            ).fetchone():
+                raise WorkflowError('Existing candidate invalidated by correction ticket')
             if draft['body_sha256'] != found['body_sha256']:
                 raise WorkflowError('Candidate draft integrity failure')
             return {**package, 'package_sha256': digest}
