@@ -1993,6 +1993,7 @@ def create_dashboard_server(
                     (project_pipeline, owns_pipeline),
                     (task_allocation, owns_allocation),
                     (worker_queue, True),
+                    (workflow_engine, True),
                 )
                 if owned
             ),
@@ -2003,4 +2004,5 @@ def create_dashboard_server(
         if owns_allocation:
             task_allocation.close()
         worker_queue.close()
+        workflow_engine.close()
         raise

@@ -1060,6 +1060,10 @@ class WorkflowEngine:
                 "SELECT schedule_id,recurrence,next_due_at,enabled FROM studio_daily_schedules ORDER BY next_due_at"
             )
         ]
+        budgets = {
+            row["workflow_id"]: dict(row)
+            for row in self._connection.execute("SELECT * FROM studio_workflow_budgets")
+        }
         lane_counts = {
             workflow: {
                 "projects": sum(routes.get(project["project_id"]) == workflow for project in projects),
@@ -1073,12 +1077,6 @@ class WorkflowEngine:
                     and project["status"] == "blocked"
                     for project in projects
                 ),
-            }
-            budgets = {
-                row["workflow_id"]: dict(row)
-                for row in self._connection.execute(
-                    "SELECT * FROM studio_workflow_budgets"
-                )
             }
             for workflow in WORKFLOWS
         }
